@@ -65,7 +65,8 @@ export type BackendSocket = Socket<
 export function backendBaseUrl(): string {
   // For local dev, backend runs on :4000.
   // In production, set VITE_BACKEND_URL in Vercel env vars.
-  return (import.meta.env.VITE_BACKEND_URL as string | undefined) ?? "http://localhost:4000";
+  const raw = (import.meta.env.VITE_BACKEND_URL as string | undefined) ?? "http://localhost:4000";
+  return raw.trim().replace(/\/+$/, "");
 }
 
 export async function apiCreateMatch(playerName: string): Promise<{ matchId: string; playerId: string }> {

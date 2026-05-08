@@ -164,6 +164,8 @@ io.on("connection", (socket) => {
     socket.join(room(matchId));
     bindSocket(matchId, playerId, socket.id);
     socket.emit("match:state", viewForPlayer(record.match, playerId));
+    // Sync both players whenever someone joins/rejoins.
+    emitState(matchId);
   });
 
   socket.on("round:command", (raw) => {
