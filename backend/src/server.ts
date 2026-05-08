@@ -21,9 +21,37 @@ import { viewForPlayer } from "./view.js";
 const PORT = Number(process.env.PORT ?? 4000);
 const CORS_ORIGIN = process.env.CORS_ORIGIN ?? "*";
 
+function normalizeOrigin(value: string): string {
+  return value.trim().replace(/\/+$/, "");
+}
+
+function buildAllowedOrigins(raw: string): Set<string> {
+  if (raw.trim() === "*") return new Set(["*"]);
+  return new Set(
+    raw
+      .split(",")
+      .map((v) => normalizeOrigin(v))
+      .filter(Boolean),
+  );
+}
+
+const allowedOrigins = buildAllowedOrigins(CORS_ORIGIN);
+const allowAllOrigins = allowedOrigins.has("*");
+
 const app = express();
 app.use(express.json());
-app.use(cors({ origin: CORS_ORIGIN === "*" ? true : CORS_ORIGIN, credentials: true }));
+app.use(
+  cors({
+    origin(origin, cb) {
+      // Allow non-browser and same-origin requests with no Origin header.
+      if (!origin || allowAllOrigins) return cb(null, true);
+      const normalized = normalizeOrigin(origin);
+      if (allowedOrigins.has(normalized)) return cb(null, true);
+      return cb(new Error(`CORS blocked origin: ${origin}`));
+    },
+    credentials: true,
+  }),
+);
 
 app.get("/health", (_req, res) => res.json({ ok: true }));
 
@@ -91,7 +119,15 @@ app.get("/api/matches/:matchId/state/:playerId", (req, res) => {
 const server = http.createServer(app);
 
 const io = new Server<ClientToServerEvents, ServerToClientEvents>(server, {
-  cors: { origin: CORS_ORIGIN === "*" ? true : CORS_ORIGIN, credentials: true },
+  cors: {
+    origin(origin, cb) {
+      if (!origin || allowAllOrigins) return cb(null, true);
+      const normalized = normalizeOrigin(origin);
+      if (allowedOrigins.has(normalized)) return cb(null, true);
+      return cb("origin not allowed", false);
+    },
+    credentials: true,
+  },
 });
 
 function room(matchId: string) {
