@@ -1,0 +1,482 @@
+openapi: 3.0.0
+info:
+  title: Card Clash 21 API
+  version: 1.0.0
+  description: REST API and WebSocket specification for Card Clash 21 multiplayer card game
+
+servers:
+  - url: http://localhost:3000
+    description: Development server
+  - url: https://api.cardclash21.com
+    description: Production server
+
+paths:
+  /api/session/create:
+    post:
+      summary: Create new player session
+      description: Creates a temporary session for a player with their display name
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - playerName
+              properties:
+                playerName:
+                  type: string
+                  minLength: 2
+                  maxLength: 20
+                  example: "Jerm"
+      responses:
+        '201':
+          description: Session created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionResponse'
+        '400':
+          description: Invalid player name
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/matchmaking/join:
+    post:
+      summary: Join matchmaking queue
+      description: Add player to matchmaking queue to find opponent
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - sessionId
+              properties:
+                sessionId:
+                  type: string
+                  format: uuid
+      responses:
+        '200':
+          description: Successfully joined queue
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [queued]
+                  queuePosition:
+                    type: integer
+                  estimatedWaitTime:
+                    type: integer
+                    description: Estimated wait time in seconds
+        '404':
+          description: Session not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/matchmaking/leave:
+    post:
+      summary: Leave matchmaking queue
+      description: Remove player from matchmaking queue
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - sessionId
+              properties:
+                sessionId:
+                  type: string
+                  format: uuid
+      responses:
+        '200':
+          description: Successfully left queue
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [removed]
+
+  /api/game/{gameId}:
+    get:
+      summary: Get game state
+      description: Retrieve current state of an active game
+      parameters:
+        - in: path
+          name: gameId
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - in: header
+          name: X-Session-ID
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Game state retrieved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GameState'
+        '404':
+          description: Game not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/health:
+    get:
+      summary: Health check
+      description: Check if server is running
+      responses:
+        '200':
+          description: Server is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "ok"
+                  timestamp:
+                    type: integer
+                  activeGames:
+                    type: integer
+                  queueSize:
+                    type: integer
+
+components:
+  schemas:
+    SessionResponse:
+      type: object
+      properties:
+        sessionId:
+          type: string
+          format: uuid
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        playerName:
+          type: string
+          example: "Jerm"
+        status:
+          type: string
+          enum: [idle, queued, in-game]
+          example: "idle"
+        createdAt:
+          type: integer
+          description: Unix timestamp
+          example: 1672531200000
+
+    GameState:
+      type: object
+      properties:
+        gameId:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [waiting, active, finished]
+        currentTurn:
+          type: string
+          enum: [player1, player2]
+        myData:
+          $ref: '#/components/schemas/PlayerData'
+        opponentData:
+          $ref: '#/components/schemas/OpponentData'
+        actionLog:
+          type: array
+          items:
+            $ref: '#/components/schemas/GameAction'
+
+    PlayerData:
+      type: object
+      properties:
+        playerName:
+          type: string
+        lives:
+          type: integer
+          example: 3
+        cards:
+          type: array
+          items:
+            $ref: '#/components/schemas/Card'
+        totalValue:
+          type: integer
+          example: 18
+        hasStood:
+          type: boolean
+        powerUps:
+          type: array
+          items:
+            $ref: '#/components/schemas/PowerUp'
+
+    OpponentData:
+      type: object
+      description: Filtered opponent data (only visible information)
+      properties:
+        playerName:
+          type: string
+        lives:
+          type: integer
+        visibleCards:
+          type: array
+          items:
+            $ref: '#/components/schemas/Card'
+        visibleTotal:
+          type: integer
+        totalCards:
+          type: integer
+        hasStood:
+          type: boolean
+
+    Card:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        value:
+          type: integer
+          minimum: 1
+          maximum: 10
+        visible:
+          type: boolean
+          description: Whether this card is visible to opponent
+
+    PowerUp:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          type: string
+          enum:
+            - remove_opponent_card
+            - remove_own_card
+            - swap_card
+            - target_override
+        used:
+          type: boolean
+
+    GameAction:
+      type: object
+      properties:
+        playerId:
+          type: string
+          enum: [player1, player2]
+        action:
+          type: string
+          enum: [draw, stand, use_powerup, bust, win]
+        timestamp:
+          type: integer
+        details:
+          type: object
+          additionalProperties: true
+
+    Error:
+      type: object
+      properties:
+        code:
+          type: string
+          example: "INVALID_SESSION"
+        message:
+          type: string
+          example: "Session not found or expired"
+        timestamp:
+          type: integer
+
+# WebSocket Events Documentation
+x-websocket-events:
+  client-to-server:
+    - name: queue:join
+      description: Join matchmaking queue
+      payload:
+        type: object
+        properties:
+          sessionId:
+            type: string
+            format: uuid
+
+    - name: queue:leave
+      description: Leave matchmaking queue
+      payload:
+        type: object
+        properties:
+          sessionId:
+            type: string
+            format: uuid
+
+    - name: game:draw
+      description: Draw a card
+      payload:
+        type: object
+        properties:
+          gameId:
+            type: string
+            format: uuid
+          sessionId:
+            type: string
+            format: uuid
+
+    - name: game:stand
+      description: Stand (end turn, lock score)
+      payload:
+        type: object
+        properties:
+          gameId:
+            type: string
+            format: uuid
+          sessionId:
+            type: string
+            format: uuid
+
+    - name: game:use_powerup
+      description: Use a power-up ability
+      payload:
+        type: object
+        properties:
+          gameId:
+            type: string
+            format: uuid
+          sessionId:
+            type: string
+            format: uuid
+          powerUpId:
+            type: string
+            format: uuid
+          targetCardId:
+            type: string
+            format: uuid
+            description: Optional - for card removal power-ups
+
+  server-to-client:
+    - name: queue:status
+      description: Queue status update
+      payload:
+        type: object
+        properties:
+          status:
+            type: string
+            enum: [queued, searching]
+          playersInQueue:
+            type: integer
+
+    - name: match:found
+      description: Match has been found
+      payload:
+        type: object
+        properties:
+          gameId:
+            type: string
+            format: uuid
+          opponentName:
+            type: string
+          yourTurn:
+            type: boolean
+
+    - name: game:state_update
+      description: Game state has changed
+      payload:
+        type: object
+        properties:
+          gameId:
+            type: string
+          currentTurn:
+            type: string
+          myCards:
+            type: array
+          myTotal:
+            type: integer
+          myLives:
+            type: integer
+          opponentCards:
+            type: array
+          opponentVisibleTotal:
+            type: integer
+          opponentLives:
+            type: integer
+          actionLog:
+            type: array
+
+    - name: game:your_turn
+      description: It's now your turn
+      payload:
+        type: object
+        properties:
+          gameId:
+            type: string
+            format: uuid
+
+    - name: game:opponent_action
+      description: Opponent performed an action
+      payload:
+        type: object
+        properties:
+          action:
+            type: string
+            enum: [draw, stand, use_powerup]
+          details:
+            type: object
+
+    - name: game:over
+      description: Game has ended
+      payload:
+        type: object
+        properties:
+          gameId:
+            type: string
+            format: uuid
+          winner:
+            type: string
+            enum: [you, opponent, draw]
+          reason:
+            type: string
+            enum: [bust, stand, surrender, disconnect]
+          finalScores:
+            type: object
+            properties:
+              you:
+                type: integer
+              opponent:
+                type: integer
+
+    - name: game:opponent_disconnected
+      description: Opponent has disconnected
+      payload:
+        type: object
+        properties:
+          gameId:
+            type: string
+            format: uuid
+          waitingForReconnect:
+            type: boolean
+          timeoutSeconds:
+            type: integer
+
+    - name: error
+      description: Error occurred
+      payload:
+        type: object
+        properties:
+          code:
+            type: string
+          message:
+            type: string

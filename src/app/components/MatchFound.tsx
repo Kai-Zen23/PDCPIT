@@ -1,12 +1,23 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo } from "react";
 import { useNavigate } from "react-router";
 import { motion } from "motion/react";
 import { Swords, Zap } from "lucide-react";
+import { loadSession } from "../../lib/session";
+import { useMatchConnection } from "../state/useMatch";
 
 export function MatchFound() {
   const navigate = useNavigate();
-  const [playerAlias] = useState(`PLAYER-${Math.floor(Math.random() * 99) + 1}`);
-  const [opponentAlias] = useState(`SPECTER-${Math.floor(Math.random() * 99) + 1}`);
+  const fallbackSession = loadSession();
+  const { session, state } = useMatchConnection();
+
+  const playerAlias = useMemo(
+    () => session?.playerName ?? fallbackSession?.playerName ?? "PLAYER",
+    [fallbackSession?.playerName, session?.playerName],
+  );
+  const opponentAlias = useMemo(
+    () => state?.opponent?.name ?? "OPPONENT",
+    [state?.opponent?.name],
+  );
 
   useEffect(() => {
     const timer = setTimeout(() => {

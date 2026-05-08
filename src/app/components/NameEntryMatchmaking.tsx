@@ -1,7 +1,10 @@
-import { useState, useEffect } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { motion, AnimatePresence } from "motion/react";
 import { Users, Wifi, ArrowRight } from "lucide-react";
+import { apiEnqueueMatchmaking } from "../../lib/backend";
+import { clearSession, saveSession } from "../../lib/session";
+import { useMatchConnection } from "../state/useMatch";
 
 type MatchState = "name-entry" | "searching" | "found" | "connecting";
 
@@ -10,37 +13,52 @@ export function NameEntryMatchmaking() {
   const [playerName, setPlayerName] = useState("");
   const [matchState, setMatchState] = useState<MatchState>("name-entry");
   const [playersInQueue] = useState(Math.floor(Math.random() * 50) + 10);
+  const [status, setStatus] = useState<string>("");
+  const [loading, setLoading] = useState(false);
+  const transitionedRef = useRef(false);
+
+  // After we enqueue (and save session), we can use the same hook as Gameplay/Waiting.
+  const { state, error } = useMatchConnection();
 
   useEffect(() => {
-    if (matchState === "searching") {
-      const searchTimer = setTimeout(() => {
-        setMatchState("found");
-      }, 2500);
+    if (matchState === "name-entry") return;
+    if (!state) return;
 
-      const foundTimer = setTimeout(() => {
-        setMatchState("connecting");
-      }, 4000);
-
-      const connectTimer = setTimeout(() => {
-        navigate('/match-found', { state: { playerName } });
-      }, 5500);
-
+    // When opponent exists, transition to found/connecting then go to game.
+    if (state.status === "IN_PROGRESS" && state.opponent && !transitionedRef.current) {
+      transitionedRef.current = true;
+      setMatchState("found");
+      const t1 = setTimeout(() => setMatchState("connecting"), 900);
+      const t2 = setTimeout(() => navigate("/match-found"), 1800);
       return () => {
-        clearTimeout(searchTimer);
-        clearTimeout(foundTimer);
-        clearTimeout(connectTimer);
+        clearTimeout(t1);
+        clearTimeout(t2);
       };
     }
-  }, [matchState, navigate, playerName]);
+  }, [matchState, navigate, state]);
 
-  const handleEnterQueue = () => {
-    if (playerName.trim().length >= 2) {
+  const handleEnterQueue = async () => {
+    if (playerName.trim().length < 2) return;
+    setLoading(true);
+    setStatus("");
+    transitionedRef.current = false;
+    try {
+      clearSession();
+      const res = await apiEnqueueMatchmaking(playerName.trim());
+      saveSession({ matchId: res.matchId, playerId: res.playerId, playerName: playerName.trim() });
       setMatchState("searching");
+      setStatus(res.role === "CREATED" ? "Queued. Waiting for opponent..." : "Match found. Connecting...");
+    } catch (e) {
+      setStatus(e instanceof Error ? e.message : "Failed to enter queue.");
+      setMatchState("name-entry");
+    } finally {
+      setLoading(false);
     }
   };
 
   const handleCancel = () => {
     setMatchState("name-entry");
+    clearSession();
     navigate('/');
   };
 
@@ -203,16 +221,18 @@ export function NameEntryMatchmaking() {
                   whileHover={{ scale: playerName.trim().length >= 2 ? 1.02 : 1 }}
                   whileTap={{ scale: playerName.trim().length >= 2 ? 0.98 : 1 }}
                   onClick={handleEnterQueue}
-                  disabled={playerName.trim().length < 2}
+                  disabled={loading || playerName.trim().length < 2}
                   className="w-full px-8 py-4 bg-gradient-to-r from-[#9D4EDD] to-[#8B3DC7] rounded-xl text-[#F5F5F5] text-lg tracking-wide disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-all"
                   style={{
                     fontFamily: 'Orbitron, sans-serif',
                     boxShadow: playerName.trim().length >= 2 ? '0 0 30px rgba(157, 78, 221, 0.6)' : 'none'
                   }}
                 >
-                  ENTER QUEUE
+                  {loading ? "ENTERING..." : "ENTER QUEUE"}
                   <ArrowRight className="w-5 h-5" />
                 </motion.button>
+                {status && <p className="text-[#B0B0B0] mt-4 text-center text-sm">{status}</p>}
+                {error?.message && <p className="text-[#D62828] mt-2 text-center text-sm">{error.message}</p>}
 
                 <motion.button
                   whileHover={{ scale: 1.02 }}
@@ -279,6 +299,8 @@ export function NameEntryMatchmaking() {
                 >
                   Waiting for another player to join
                 </motion.p>
+                {status && <p className="text-[#B0B0B0] text-sm">{status}</p>}
+                {error?.message && <p className="text-[#D62828] text-sm mt-2">{error.message}</p>}
 
                 <p className="text-[#4CC9F0] text-sm" style={{ fontFamily: 'Orbitron, sans-serif' }}>
                   Playing as: {playerName}

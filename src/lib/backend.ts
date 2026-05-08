@@ -88,6 +88,18 @@ export async function apiJoinMatch(matchId: string, playerName: string): Promise
   return await res.json();
 }
 
+export async function apiEnqueueMatchmaking(
+  playerName: string,
+): Promise<{ matchId: string; playerId: string; role: "CREATED" | "JOINED" }> {
+  const res = await fetch(`${backendBaseUrl()}/api/matchmaking/enqueue`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ playerName }),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return await res.json();
+}
+
 export function createBackendSocket(): BackendSocket {
   return io(backendBaseUrl(), {
     transports: ["websocket"],
