@@ -16,6 +16,8 @@ export function NameEntryMatchmaking() {
   const [status, setStatus] = useState<string>("");
   const [loading, setLoading] = useState(false);
   const transitionedRef = useRef(false);
+  const foundTimerRef = useRef<number | null>(null);
+  const connectTimerRef = useRef<number | null>(null);
 
   // After we enqueue (and save session), we can use the same hook as Gameplay/Waiting.
   const { state, error } = useMatchConnection();
@@ -27,14 +29,17 @@ export function NameEntryMatchmaking() {
     if (state.status === "IN_PROGRESS" && state.opponent && !transitionedRef.current) {
       transitionedRef.current = true;
       setMatchState("found");
-      const t1 = setTimeout(() => setMatchState("connecting"), 900);
-      const t2 = setTimeout(() => navigate("/match-found"), 1800);
-      return () => {
-        clearTimeout(t1);
-        clearTimeout(t2);
-      };
+      foundTimerRef.current = window.setTimeout(() => setMatchState("connecting"), 900);
+      connectTimerRef.current = window.setTimeout(() => navigate("/match-found"), 1800);
     }
-  }, [matchState, navigate, state]);
+  }, [navigate, state]);
+
+  useEffect(() => {
+    return () => {
+      if (foundTimerRef.current) window.clearTimeout(foundTimerRef.current);
+      if (connectTimerRef.current) window.clearTimeout(connectTimerRef.current);
+    };
+  }, []);
 
   const handleEnterQueue = async () => {
     if (playerName.trim().length < 2) return;
