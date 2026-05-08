@@ -297,7 +297,9 @@ export function NameEntryMatchmaking() {
                   animate={{ opacity: [0.5, 1, 0.5] }}
                   transition={{ duration: 2, repeat: Infinity }}
                 >
-                  Waiting for another player to join
+                  {matchState === "searching" && "Waiting for another player to join"}
+                  {matchState === "found" && "Match found. Finalizing connection..."}
+                  {matchState === "connecting" && "Initializing duel..."}
                 </motion.p>
                 {status && <p className="text-[#B0B0B0] text-sm">{status}</p>}
                 {error?.message && <p className="text-[#D62828] text-sm mt-2">{error.message}</p>}

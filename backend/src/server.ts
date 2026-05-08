@@ -55,8 +55,14 @@ app.use(
 
 app.get("/health", (_req, res) => res.json({ ok: true }));
 
-// Simple global matchmaking queue for MVP (one waiting match at a time).
-let waitingMatchId: string | null = null;
+function findWaitingMatchId(): string | null {
+  for (const [matchId, record] of listMatches()) {
+    if (record.match.status === "WAITING" && record.match.playerOrder.length === 1) {
+      return matchId;
+    }
+  }
+  return null;
+}
 
 app.post("/api/matches", (req, res) => {
   const parsed = createMatchSchema.safeParse(req.body);
@@ -71,21 +77,14 @@ app.post("/api/matchmaking/enqueue", (req, res) => {
   const playerName = parsed.data.playerName;
 
   try {
-    // If we have a waiting match with 1 player, join it; otherwise create a new waiting match.
+    // Pair with any currently waiting 1-player match; otherwise create a new one.
+    const waitingMatchId = findWaitingMatchId();
     if (waitingMatchId) {
-      const record = getMatch(waitingMatchId);
-      if (record && record.match.status === "WAITING" && record.match.playerOrder.length === 1) {
-        const { playerId } = joinExistingMatch(waitingMatchId, playerName);
-        const matchId = waitingMatchId;
-        waitingMatchId = null;
-        return res.json({ matchId, playerId, role: "JOINED" as const });
-      }
-      // stale queue
-      waitingMatchId = null;
+      const { playerId } = joinExistingMatch(waitingMatchId, playerName);
+      return res.json({ matchId: waitingMatchId, playerId, role: "JOINED" as const });
     }
 
     const created = createNewMatch(playerName);
-    waitingMatchId = created.matchId;
     return res.json({ matchId: created.matchId, playerId: created.playerId, role: "CREATED" as const });
   } catch (e) {
     return res.status(400).json({ error: e instanceof Error ? e.message : "Matchmaking failed" });
