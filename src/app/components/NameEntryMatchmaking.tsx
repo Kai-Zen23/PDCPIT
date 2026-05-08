@@ -21,7 +21,6 @@ export function NameEntryMatchmaking() {
   const { state, error } = useMatchConnection();
 
   useEffect(() => {
-    if (matchState === "name-entry") return;
     if (!state) return;
 
     // When opponent exists, transition to found/connecting then go to game.
