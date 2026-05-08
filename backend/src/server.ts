@@ -124,7 +124,7 @@ const io = new Server<ClientToServerEvents, ServerToClientEvents>(server, {
       if (!origin || allowAllOrigins) return cb(null, true);
       const normalized = normalizeOrigin(origin);
       if (allowedOrigins.has(normalized)) return cb(null, true);
-      return cb("origin not allowed", false);
+      return cb(new Error("origin not allowed"), false);
     },
     credentials: true,
   },
