@@ -2,16 +2,23 @@ import { useEffect } from "react";
 import { useNavigate } from "react-router";
 import { motion } from "motion/react";
 import { Loader2 } from "lucide-react";
+import { loadSession } from "../../lib/session";
+import { useMatchConnection } from "../state/useMatch";
 
 export function Waiting() {
   const navigate = useNavigate();
+  const session = loadSession();
+  const { state, error } = useMatchConnection();
 
   useEffect(() => {
-    const timer = setTimeout(() => {
-      navigate('/game');
-    }, 3000);
-    return () => clearTimeout(timer);
-  }, [navigate]);
+    if (!session) {
+      navigate("/lobby");
+      return;
+    }
+    if (state?.status === "IN_PROGRESS" && state.opponent) {
+      navigate("/game");
+    }
+  }, [navigate, session, state?.status, state?.opponent]);
 
   return (
     <div className="min-h-screen bg-[#121212] relative overflow-hidden flex items-center justify-center" style={{ fontFamily: 'Poppins, sans-serif' }}>
@@ -75,6 +82,7 @@ export function Waiting() {
         </div>
 
         <p className="text-[#B0B0B0] text-lg">Preparing the battlefield...</p>
+        {error?.message && <p className="text-[#D62828] mt-4">{error.message}</p>}
       </div>
     </div>
   );

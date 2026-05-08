@@ -1,18 +1,63 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useNavigate } from "react-router";
 import { motion } from "motion/react";
 import { Copy, Users, ArrowLeft } from "lucide-react";
+import { apiCreateMatch, apiJoinMatch } from "../../lib/backend";
+import { clearSession, loadSession, saveSession } from "../../lib/session";
 
 export function Lobby() {
   const navigate = useNavigate();
-  const [roomCode] = useState("AX7K9P");
-  const [players] = useState([
-    { id: 1, name: "Player1", ready: true },
-    { id: 2, name: "Waiting...", ready: false },
-  ]);
+  const existing = useMemo(() => loadSession(), []);
+  const [mode, setMode] = useState<"create" | "join">(existing ? "create" : "create");
+  const [playerName, setPlayerName] = useState(existing?.playerName ?? `PLAYER-${Math.floor(Math.random() * 99) + 1}`);
+  const [roomCode, setRoomCode] = useState(existing?.matchId ?? "");
+  const [joinCode, setJoinCode] = useState("");
+  const [status, setStatus] = useState<string>("");
+  const [loading, setLoading] = useState(false);
+
+  const players = useMemo(
+    () => [
+      { id: 1, name: playerName || "You", ready: true },
+      { id: 2, name: "Waiting...", ready: false },
+    ],
+    [playerName],
+  );
 
   const copyRoomCode = () => {
     navigator.clipboard.writeText(roomCode);
+  };
+
+  const createRoom = async () => {
+    setLoading(true);
+    setStatus("");
+    try {
+      clearSession();
+      const created = await apiCreateMatch(playerName);
+      setRoomCode(created.matchId);
+      saveSession({ matchId: created.matchId, playerId: created.playerId, playerName });
+      setStatus("Room created. Share the code with your opponent.");
+    } catch (e) {
+      setStatus(e instanceof Error ? e.message : "Failed to create room.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const joinRoom = async () => {
+    setLoading(true);
+    setStatus("");
+    try {
+      clearSession();
+      const matchId = joinCode.trim().toUpperCase();
+      const joined = await apiJoinMatch(matchId, playerName);
+      saveSession({ matchId: joined.matchId, playerId: joined.playerId, playerName });
+      setStatus("Joined. Starting match...");
+      navigate("/waiting");
+    } catch (e) {
+      setStatus(e instanceof Error ? e.message : "Failed to join room.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -64,6 +109,32 @@ export function Lobby() {
               <label className="block text-[#B0B0B0] mb-3 text-sm uppercase tracking-wide">
                 Room Code
               </label>
+              <div className="flex gap-2 mb-4">
+                <button
+                  onClick={() => setMode("create")}
+                  className={`flex-1 py-2 rounded-lg border ${
+                    mode === "create" ? "border-[#9D4EDD] text-[#F5F5F5]" : "border-[#9D4EDD]/30 text-[#B0B0B0]"
+                  }`}
+                >
+                  Create
+                </button>
+                <button
+                  onClick={() => setMode("join")}
+                  className={`flex-1 py-2 rounded-lg border ${
+                    mode === "join" ? "border-[#4CC9F0] text-[#F5F5F5]" : "border-[#4CC9F0]/30 text-[#B0B0B0]"
+                  }`}
+                >
+                  Join
+                </button>
+              </div>
+
+              <label className="block text-[#B0B0B0] mb-2 text-sm uppercase tracking-wide">Your Name</label>
+              <input
+                value={playerName}
+                onChange={(e) => setPlayerName(e.target.value)}
+                className="w-full mb-4 bg-[#121212] border-2 border-[#9D4EDD]/40 rounded-xl px-4 py-3 text-[#F5F5F5] outline-none"
+              />
+
               <div className="flex gap-3">
                 <div
                   className="flex-1 bg-[#121212] border-2 border-[#9D4EDD]/60 rounded-xl px-6 py-4 text-center"
@@ -72,18 +143,30 @@ export function Lobby() {
                     boxShadow: '0 0 30px rgba(157, 78, 221, 0.3)'
                   }}
                 >
-                  <span className="text-3xl text-[#9D4EDD] tracking-[0.3em]">{roomCode}</span>
+                  <span className="text-3xl text-[#9D4EDD] tracking-[0.3em]">{roomCode || "--------"}</span>
                 </div>
                 <motion.button
                   whileHover={{ scale: 1.05 }}
                   whileTap={{ scale: 0.95 }}
                   onClick={copyRoomCode}
+                  disabled={!roomCode}
                   className="px-6 bg-[#4CC9F0] hover:bg-[#3AB5DC] rounded-xl flex items-center justify-center transition-colors"
                   style={{ boxShadow: '0 0 20px rgba(76, 201, 240, 0.4)' }}
                 >
                   <Copy className="w-6 h-6 text-[#121212]" />
                 </motion.button>
               </div>
+              {mode === "join" && (
+                <div className="mt-4">
+                  <label className="block text-[#B0B0B0] mb-2 text-sm uppercase tracking-wide">Enter Code</label>
+                  <input
+                    value={joinCode}
+                    onChange={(e) => setJoinCode(e.target.value)}
+                    className="w-full bg-[#121212] border-2 border-[#4CC9F0]/40 rounded-xl px-4 py-3 text-[#F5F5F5] outline-none"
+                  />
+                </div>
+              )}
+              {status && <p className="text-[#B0B0B0] mt-3">{status}</p>}
             </div>
 
             {/* Players */}
@@ -131,14 +214,15 @@ export function Lobby() {
               <motion.button
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
-                onClick={() => navigate('/waiting')}
+                onClick={mode === "create" ? createRoom : joinRoom}
+                disabled={loading || (mode === "create" ? !playerName : !playerName || !joinCode.trim())}
                 className="flex-1 px-8 py-4 bg-gradient-to-r from-[#2ECC71] to-[#27AE60] rounded-xl text-[#F5F5F5] text-lg tracking-wide"
                 style={{
                   fontFamily: 'Orbitron, sans-serif',
                   boxShadow: '0 0 30px rgba(46, 204, 113, 0.5)'
                 }}
               >
-                READY
+                {mode === "create" ? (loading ? "CREATING..." : "CREATE ROOM") : loading ? "JOINING..." : "JOIN ROOM"}
               </motion.button>
               <motion.button
                 whileHover={{ scale: 1.02 }}

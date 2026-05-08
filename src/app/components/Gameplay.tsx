@@ -1,77 +1,68 @@
-import { useState } from "react";
+import { useMemo } from "react";
 import { useNavigate } from "react-router";
 import { motion, AnimatePresence } from "motion/react";
 import { Heart, Plus, Minus, Target, Zap, Trash2, RefreshCw } from "lucide-react";
+import type { BackendPowerUp } from "../../lib/backend";
+import { useMatchConnection } from "../state/useMatch";
 
-interface Card {
-  id: number;
-  value: number;
-  visible: boolean;
-}
-
-interface Player {
-  name: string;
-  lives: number;
-  cards: Card[];
+function labelForPowerUp(p: BackendPowerUp) {
+  if (p === "REMOVE") return "Remove Card";
+  if (p === "SWAP") return "Swap Card";
+  if (p === "OVERRIDE") return "Override";
+  return "Double";
 }
 
 export function Gameplay() {
   const navigate = useNavigate();
-  const [currentTurn, setCurrentTurn] = useState<"player" | "opponent">("player");
-  const [actionLog, setActionLog] = useState<string[]>([
-    "Game started",
-    "Player1's turn",
-  ]);
+  const { state, events, error, isYourTurn, sendDraw, sendStand, usePowerUp, nextOverrideTarget } =
+    useMatchConnection();
 
-  const [player, setPlayer] = useState<Player>({
-    name: "Player1",
-    lives: 3,
-    cards: [
-      { id: 1, value: 5, visible: true },
-      { id: 2, value: 7, visible: true },
-    ],
-  });
-
-  const [opponent, setOpponent] = useState<Player>({
-    name: "Opponent",
-    lives: 3,
-    cards: [
-      { id: 1, value: 8, visible: true },
-      { id: 2, value: 4, visible: false },
-      { id: 3, value: 6, visible: false },
-    ],
-  });
-
-  const playerTotal = player.cards.reduce((sum, card) => sum + card.value, 0);
-  const opponentVisibleTotal = opponent.cards
-    .filter(c => c.visible)
-    .reduce((sum, card) => sum + card.value, 0);
-
-  const drawCard = () => {
-    const newCard = {
-      id: player.cards.length + 1,
-      value: Math.floor(Math.random() * 10) + 1,
-      visible: true,
-    };
-    setPlayer({ ...player, cards: [...player.cards, newCard] });
-    setActionLog([`Player1 drew a ${newCard.value}`, ...actionLog]);
-
-    if (playerTotal + newCard.value > 21) {
-      setTimeout(() => navigate('/defeat'), 1500);
-    }
-  };
-
-  const stand = () => {
-    setActionLog(["Player1 stands", ...actionLog]);
-    setCurrentTurn("opponent");
-    setTimeout(() => {
-      if (Math.random() > 0.5) {
-        navigate('/victory');
-      } else {
-        navigate('/defeat');
+  const actionLog = useMemo(() => {
+    if (!state) return ["Connecting..."];
+    const lines = events.map((e) => {
+      switch (e.type) {
+        case "ROUND:STARTED":
+          return `Round ${e.roundNumber} started (target ${e.target})`;
+        case "TURN:CHANGED":
+          return e.activePlayerId === state.you.playerId ? "Your turn" : "Opponent's turn";
+        case "CARD:DRAWN":
+          return e.playerId === state.you.playerId ? "You drew a card" : "Opponent drew a card";
+        case "PLAYER:STOOD":
+          return e.playerId === state.you.playerId ? "You stand" : "Opponent stands";
+        case "POWER_UP:USED":
+          return e.playerId === state.you.playerId
+            ? `You used ${labelForPowerUp(e.powerUp)}`
+            : `Opponent used ${labelForPowerUp(e.powerUp)}`;
+        case "ROUND:ENDED":
+          return e.winnerPlayerId === null
+            ? "Round ended in a tie"
+            : e.winnerPlayerId === state.you.playerId
+              ? "You won the round"
+              : "You lost the round";
+        case "MATCH:ENDED":
+          return e.winnerPlayerId === state.you.playerId ? "You win the match" : "You lose the match";
+        default:
+          return e.type;
       }
-    }, 2000);
-  };
+    });
+    return ["Game started", ...lines];
+  }, [events, state]);
+
+  const round = state?.round;
+  const you = state?.you;
+  const opp = state?.opponent;
+
+  const myHand = round?.you.hand ?? [];
+  const oppHand = round?.opponent?.hand ?? [];
+  const opponentVisibleTotal = round?.opponent?.totalVisible ?? 0;
+  const playerTotal = round?.you.totalActual ?? 0;
+  const currentTurn = round?.activePlayerId === you?.playerId ? "player" : "opponent";
+
+  // Navigation on match end
+  if (state?.status === "FINISHED") {
+    const winner = (round?.winnerPlayerId ?? null) === you?.playerId;
+    setTimeout(() => navigate(winner ? "/victory" : "/defeat"), 300);
+  }
 
   return (
     <div className="min-h-screen bg-[#121212] relative overflow-hidden" style={{ fontFamily: 'Poppins, sans-serif' }}>
@@ -98,48 +89,48 @@ export function Gameplay() {
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-4">
                 <h3 className="text-2xl text-[#F5F5F5]" style={{ fontFamily: 'Orbitron, sans-serif' }}>
-                  {opponent.name}
+                  {opp?.name ?? "Opponent"}
                 </h3>
                 <div className="flex gap-2">
                   {[...Array(3)].map((_, i) => (
                     <Heart
                       key={i}
                       className={`w-6 h-6 ${
-                        i < opponent.lives ? 'text-[#D62828] fill-[#D62828]' : 'text-[#B0B0B0]/30'
+                        i < (opp?.lives ?? 3) ? 'text-[#D62828] fill-[#D62828]' : 'text-[#B0B0B0]/30'
                       }`}
-                      style={i < opponent.lives ? { filter: 'drop-shadow(0 0 8px #D62828)' } : {}}
+                      style={i < (opp?.lives ?? 3) ? { filter: 'drop-shadow(0 0 8px #D62828)' } : {}}
                     />
                   ))}
                 </div>
               </div>
               <div className="text-[#B0B0B0]">
-                Cards: {opponent.cards.length}
+                Cards: {oppHand.length}
               </div>
             </div>
 
             {/* Opponent cards */}
             <div className="flex gap-3 justify-center">
-              {opponent.cards.map((card, index) => (
+              {oppHand.map((card, index) => (
                 <motion.div
                   key={card.id}
                   initial={{ opacity: 0, scale: 0.8, rotateY: 90 }}
                   animate={{ opacity: 1, scale: 1, rotateY: 0 }}
                   transition={{ delay: index * 0.1 }}
                   className={`w-20 h-28 rounded-xl flex items-center justify-center ${
-                    card.visible
+                    !card.hidden
                       ? 'bg-gradient-to-br from-[#1E1E1E] to-[#2A2A2A] border-2 border-[#9D4EDD]'
                       : 'bg-gradient-to-br from-[#2A2A2A] to-[#1E1E1E] border-2 border-[#B0B0B0]/30'
                   }`}
                   style={{
-                    boxShadow: card.visible ? '0 0 20px rgba(157, 78, 221, 0.5)' : 'none'
+                    boxShadow: !card.hidden ? '0 0 20px rgba(157, 78, 221, 0.5)' : 'none'
                   }}
                 >
-                  {card.visible ? (
+                  {!card.hidden ? (
                     <span
                       className="text-4xl text-[#9D4EDD]"
                       style={{ fontFamily: 'Orbitron, sans-serif' }}
                     >
-                      {card.value}
+                      {card.value ?? 0}
                     </span>
                   ) : (
                     <span className="text-4xl text-[#B0B0B0]">?</span>
@@ -177,7 +168,7 @@ export function Gameplay() {
                     textShadow: '0 0 60px rgba(157, 78, 221, 1), 0 0 100px rgba(157, 78, 221, 0.6)'
                   }}
                 >
-                  21
+                  {round?.target ?? 21}
                 </div>
               </div>
             </motion.div>
@@ -224,16 +215,16 @@ export function Gameplay() {
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-4">
                 <h3 className="text-2xl text-[#F5F5F5]" style={{ fontFamily: 'Orbitron, sans-serif' }}>
-                  {player.name}
+                  {you?.name ?? "You"}
                 </h3>
                 <div className="flex gap-2">
                   {[...Array(3)].map((_, i) => (
                     <Heart
                       key={i}
                       className={`w-6 h-6 ${
-                        i < player.lives ? 'text-[#2ECC71] fill-[#2ECC71]' : 'text-[#B0B0B0]/30'
+                        i < (you?.lives ?? 3) ? 'text-[#2ECC71] fill-[#2ECC71]' : 'text-[#B0B0B0]/30'
                       }`}
-                      style={i < player.lives ? { filter: 'drop-shadow(0 0 8px #2ECC71)' } : {}}
+                      style={i < (you?.lives ?? 3) ? { filter: 'drop-shadow(0 0 8px #2ECC71)' } : {}}
                     />
                   ))}
                 </div>
@@ -245,7 +236,7 @@ export function Gameplay() {
 
             {/* Player cards */}
             <div className="flex gap-3 justify-center mb-6">
-              {player.cards.map((card, index) => (
+              {myHand.map((card, index) => (
                 <motion.div
                   key={card.id}
                   initial={{ opacity: 0, scale: 0.8, y: 50 }}
@@ -260,7 +251,7 @@ export function Gameplay() {
                     className="text-5xl text-[#4CC9F0]"
                     style={{ fontFamily: 'Orbitron, sans-serif' }}
                   >
-                    {card.value}
+                    {card.value ?? 0}
                   </span>
                 </motion.div>
               ))}
@@ -271,8 +262,8 @@ export function Gameplay() {
               <motion.button
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
-                onClick={drawCard}
-                disabled={currentTurn !== "player"}
+                onClick={sendDraw}
+                disabled={!isYourTurn || !!round?.you.stood}
                 className="px-6 py-4 bg-gradient-to-r from-[#9D4EDD] to-[#8B3DC7] rounded-xl text-[#F5F5F5] text-lg tracking-wide disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                 style={{
                   fontFamily: 'Orbitron, sans-serif',
@@ -286,8 +277,8 @@ export function Gameplay() {
               <motion.button
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
-                onClick={stand}
-                disabled={currentTurn !== "player"}
+                onClick={sendStand}
+                disabled={!isYourTurn || !!round?.you.stood}
                 className="px-6 py-4 bg-[#1E1E1E] border-2 border-[#B0B0B0]/50 rounded-xl text-[#F5F5F5] text-lg tracking-wide disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 hover:border-[#B0B0B0]"
                 style={{ fontFamily: 'Orbitron, sans-serif' }}
               >
@@ -303,16 +294,23 @@ export function Gameplay() {
                 Power-Ups
               </h4>
               <div className="grid grid-cols-4 gap-2">
-                {[
-                  { icon: Trash2, label: "Remove Card" },
-                  { icon: RefreshCw, label: "Swap Card" },
-                  { icon: Target, label: "Override" },
-                  { icon: Zap, label: "Double" },
-                ].map((powerup, i) => (
+                {([
+                  { type: "REMOVE" as const, icon: Trash2, label: "Remove Card" },
+                  { type: "SWAP" as const, icon: RefreshCw, label: "Swap Card" },
+                  { type: "OVERRIDE" as const, icon: Target, label: `Override → ${nextOverrideTarget}` },
+                  { type: "DOUBLE" as const, icon: Zap, label: "Double" },
+                ] as const).map((powerup) => (
                   <motion.button
-                    key={i}
+                    key={powerup.type}
                     whileHover={{ scale: 1.05 }}
                     whileTap={{ scale: 0.95 }}
+                    onClick={() => usePowerUp(powerup.type)}
+                    disabled={
+                      !isYourTurn ||
+                      !!round?.you.stood ||
+                      !!round?.you.powerUpUsedThisRound ||
+                      !(you?.powerUps ?? []).includes(powerup.type)
+                    }
                     className="bg-[#121212] border border-[#4CC9F0]/40 rounded-lg p-3 flex flex-col items-center gap-2 hover:border-[#4CC9F0] hover:bg-[#4CC9F0]/10 transition-all"
                     style={{ boxShadow: '0 0 15px rgba(76, 201, 240, 0.2)' }}
                   >
@@ -321,6 +319,7 @@ export function Gameplay() {
                   </motion.button>
                 ))}
               </div>
+              {error?.message && <p className="text-[#D62828] mt-3 text-sm">{error.message}</p>}
             </div>
           </div>
         </motion.div>

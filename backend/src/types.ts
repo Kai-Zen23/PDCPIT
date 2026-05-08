@@ -1,0 +1,156 @@
+import { z } from "zod";
+
+// ---- Core constants
+
+export const TARGET_VALUES = [19, 21, 28] as const;
+export type TargetValue = (typeof TARGET_VALUES)[number];
+
+export const POWER_UP_TYPES = ["REMOVE", "SWAP", "OVERRIDE", "DOUBLE"] as const;
+export type PowerUpType = (typeof POWER_UP_TYPES)[number];
+
+export const COMMAND_TYPES = ["DRAW", "STAND", "POWER_UP"] as const;
+export type CommandType = (typeof COMMAND_TYPES)[number];
+
+// ---- Public schemas
+
+export const createMatchSchema = z.object({
+  playerName: z.string().trim().min(1).max(20),
+});
+export type CreateMatchInput = z.infer<typeof createMatchSchema>;
+
+export const joinMatchSchema = z.object({
+  playerName: z.string().trim().min(1).max(20),
+});
+export type JoinMatchInput = z.infer<typeof joinMatchSchema>;
+
+export const powerUpPayloadSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("REMOVE") }),
+  z.object({ type: z.literal("SWAP") }),
+  z.object({
+    type: z.literal("OVERRIDE"),
+    target: z.union([z.literal(19), z.literal(21), z.literal(28)]),
+  }),
+  z.object({ type: z.literal("DOUBLE") }),
+]);
+
+export const matchCommandSchema = z.object({
+  matchId: z.string().min(1),
+  commandId: z.string().min(1),
+  type: z.union([z.literal("DRAW"), z.literal("STAND"), z.literal("POWER_UP")]),
+  payload: z.unknown().optional(),
+});
+export type MatchCommandInput = z.infer<typeof matchCommandSchema>;
+
+// ---- Socket events
+
+export type ClientToServerEvents = {
+  "match:join": (data: { matchId: string; playerId: string }) => void;
+  "round:command": (data: MatchCommandInput) => void;
+};
+
+export type ServerToClientEvents = {
+  "match:state": (data: MatchViewForPlayer) => void;
+  "match:event": (data: MatchEvent) => void;
+  "match:error": (data: { commandId?: string; message: string }) => void;
+};
+
+// ---- Internal game types
+
+export type Card = {
+  id: string;
+  value: number;
+  // first 2 cards are dealt as visible+hidden; later draws are visible.
+  visibility: "VISIBLE" | "HIDDEN_TO_OPPONENT";
+  // "last drawn" means the most recent card added to the hand, including the initial deal.
+  drawnAtTurnIndex: number; // monotonically increasing per-player in a round
+};
+
+export type RoundPlayerState = {
+  stood: boolean;
+  turnsTaken: number; // max 3
+  powerUpUsedThisRound: boolean;
+  hand: Card[];
+  drawIndex: number; // increments whenever a card is added (used for "last drawn")
+};
+
+export type RoundState = {
+  roundNumber: number;
+  target: TargetValue;
+  deck: number[]; // remaining values
+  activePlayerId: string;
+  players: Record<string, RoundPlayerState>;
+  ended: boolean;
+  winnerPlayerId: string | null; // null for tie
+  // for reveal
+  revealAll: boolean;
+};
+
+export type MatchPlayer = {
+  id: string;
+  name: string;
+  lives: number;
+  powerUps: PowerUpType[];
+  // once per game per player
+  overrideUsed: boolean;
+};
+
+export type MatchState = {
+  id: string;
+  status: "WAITING" | "IN_PROGRESS" | "FINISHED";
+  createdAt: number;
+  players: Record<string, MatchPlayer>;
+  playerOrder: string[]; // length <= 2
+  round: RoundState | null;
+};
+
+// ---- Views (filtered for each player)
+
+export type CardView = {
+  id: string;
+  value?: number;
+  hidden?: boolean;
+  visibility: Card["visibility"];
+};
+
+export type MatchViewForPlayer = {
+  matchId: string;
+  status: MatchState["status"];
+  you: { playerId: string; name: string; lives: number; powerUps: PowerUpType[] };
+  opponent?: { playerId: string; name: string; lives: number; powerUpsCount: number };
+  round?: {
+    roundNumber: number;
+    target: TargetValue;
+    activePlayerId: string;
+    ended: boolean;
+    winnerPlayerId: string | null;
+    you: {
+      stood: boolean;
+      turnsTaken: number;
+      powerUpUsedThisRound: boolean;
+      hand: CardView[];
+      totalVisible: number;
+      totalActual: number;
+    };
+    opponent?: {
+      stood: boolean;
+      turnsTaken: number;
+      powerUpUsedThisRound: boolean;
+      hand: CardView[];
+      totalVisible: number;
+    };
+    deckCount: number;
+    revealAll: boolean;
+  };
+};
+
+export type MatchEvent =
+  | { type: "MATCH:STARTED"; matchId: string }
+  | { type: "ROUND:STARTED"; matchId: string; roundNumber: number; target: TargetValue }
+  | { type: "TURN:CHANGED"; matchId: string; activePlayerId: string }
+  | { type: "CARD:DRAWN"; matchId: string; playerId: string; cardId: string }
+  | { type: "PLAYER:STOOD"; matchId: string; playerId: string }
+  | { type: "POWER_UP:USED"; matchId: string; playerId: string; powerUp: PowerUpType }
+  | { type: "ROUND:ENDED"; matchId: string; winnerPlayerId: string | null; revealAll: true }
+  | { type: "LIFE:LOST"; matchId: string; playerId: string; lives: number }
+  | { type: "MATCH:ENDED"; matchId: string; winnerPlayerId: string };
+
