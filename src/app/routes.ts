@@ -6,7 +6,6 @@ import { Gameplay } from "./components/Gameplay";
 import { Victory } from "./components/Victory";
 import { Defeat } from "./components/Defeat";
 import { AnonymousMatchmaking } from "./components/AnonymousMatchmaking";
-import { NameEntryMatchmaking } from "./components/NameEntryMatchmaking";
 import { MatchFound } from "./components/MatchFound";
 
 export const router = createBrowserRouter([
@@ -16,7 +15,7 @@ export const router = createBrowserRouter([
   },
   {
     path: "/matchmaking",
-    Component: NameEntryMatchmaking,
+    Component: AnonymousMatchmaking,
   },
   {
     path: "/match-found",

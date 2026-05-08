@@ -1,12 +1,11 @@
 import { useEffect, useState } from "react";
-import { useNavigate, useLocation } from "react-router";
+import { useNavigate } from "react-router";
 import { motion } from "motion/react";
 import { Swords, Zap } from "lucide-react";
 
 export function MatchFound() {
   const navigate = useNavigate();
-  const location = useLocation();
-  const [playerAlias] = useState((location.state as any)?.playerName || `PLAYER-${Math.floor(Math.random() * 99) + 1}`);
+  const [playerAlias] = useState(`PLAYER-${Math.floor(Math.random() * 99) + 1}`);
   const [opponentAlias] = useState(`SPECTER-${Math.floor(Math.random() * 99) + 1}`);
 
   useEffect(() => {
