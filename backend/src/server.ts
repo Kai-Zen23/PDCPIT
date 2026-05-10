@@ -229,14 +229,24 @@ setInterval(() => {
     if (match.status !== "IN_PROGRESS" || !match.round || match.round.ended) continue;
 
     if (now - match.round.turnStartedAt > TURN_TIMEOUT_MS) {
-      // Timeout! Force DRAW for active player to keep the game moving.
+      const activePlayerId = match.round.activePlayerId;
       try {
-        const events = commandDraw(match, match.round.activePlayerId);
+        const events = commandDraw(match, activePlayerId);
         for (const ev of events) io.to(room(matchId)).emit("match:event", ev);
         maybeAdvanceAfterRound(record);
         emitState(matchId);
       } catch (e) {
-        // ignore if already ended or other error
+        // If commandDraw fails (e.g. deck empty), try standing instead to avoid hang
+        try {
+          const events = commandStand(match, activePlayerId);
+          for (const ev of events) io.to(room(matchId)).emit("match:event", ev);
+          maybeAdvanceAfterRound(record);
+          emitState(matchId);
+        } catch (e2) {
+          // Absolute fallback: just reset the timer to prevent infinite loop
+          match.round.turnStartedAt = now;
+          emitState(matchId);
+        }
       }
     }
   }

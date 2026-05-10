@@ -210,10 +210,22 @@ function maybeForceStand(round: RoundState, playerId: string, events: MatchEvent
 
 function passTurn(round: RoundState, matchId: string, events: MatchEvent[]): void {
   const playerIds = Object.keys(round.players);
-  const other = playerIds.find((id) => id !== round.activePlayerId)!;
-  round.activePlayerId = other;
-  round.turnStartedAt = Date.now();
-  events.push({ type: "TURN:CHANGED", matchId, activePlayerId: other });
+  const otherId = playerIds.find((id) => id !== round.activePlayerId)!;
+  const other = round.players[otherId]!;
+
+  // Only pass the turn if the other player hasn't stood yet.
+  // If they have stood, the current player continues their turn.
+  if (!other.stood) {
+    round.activePlayerId = otherId;
+    round.turnStartedAt = Date.now();
+    events.push({ type: "TURN:CHANGED", matchId, activePlayerId: otherId });
+  } else {
+    // If the other player has stood, the current player stays active.
+    // We still reset the timer for the current player's next action.
+    round.turnStartedAt = Date.now();
+    // We don't necessarily need a TURN:CHANGED event if it's the same player,
+    // but resetting turnStartedAt ensures the timer doesn't expire immediately.
+  }
 }
 
 function endRound(match: MatchState, winnerPlayerId: string | null, events: MatchEvent[]): void {
