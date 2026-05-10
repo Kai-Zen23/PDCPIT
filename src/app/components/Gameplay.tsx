@@ -30,9 +30,19 @@ export function Gameplay() {
   
   // Latched state for round results
   const [roundResults, setRoundResults] = useState<any | null>(null);
+
+  // Clock synchronization state
+  const [clockOffset, setClockOffset] = useState(0);
   
   // Use results if available, otherwise live state
   const state = roundResults || liveState;
+
+  // Update clock offset whenever we get a fresh server timestamp
+  useEffect(() => {
+    if (liveState?.serverTime) {
+      setClockOffset(liveState.serverTime - Date.now());
+    }
+  }, [liveState?.serverTime]);
 
   // Detect round end to show results
   useEffect(() => {
@@ -68,13 +78,14 @@ export function Gameplay() {
     if (!state?.round || state.round.ended) return;
 
     const interval = setInterval(() => {
-      const elapsed = Date.now() - state.round.turnStartedAt;
+      const adjustedNow = Date.now() + clockOffset;
+      const elapsed = adjustedNow - state.round.turnStartedAt;
       const remaining = Math.max(0, 15 - Math.floor(elapsed / 1000));
       setLeft(remaining);
     }, 200);
 
     return () => clearInterval(interval);
-  }, [state?.round?.turnStartedAt, state?.round?.ended]);
+  }, [state?.round?.turnStartedAt, state?.round?.ended, clockOffset]);
 
   useEffect(() => {
     if (state?.status === "FINISHED") {

@@ -27,6 +27,7 @@ export function viewForPlayer(match: MatchState, playerId: string): MatchViewFor
   const base: MatchViewForPlayer = {
     matchId: match.id,
     status: match.status,
+    serverTime: Date.now(),
     you: { playerId, name: you.name, lives: you.lives, powerUps: [...you.powerUps] },
     opponent: opp
       ? {

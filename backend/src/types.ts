@@ -131,6 +131,7 @@ export type CardView = {
 export type MatchViewForPlayer = {
   matchId: string;
   status: MatchState["status"];
+  serverTime: number;
   you: { playerId: string; name: string; lives: number; powerUps: PowerUpType[] };
   opponent?: { playerId: string; name: string; lives: number; powerUpsCount: number };
   round?: {
