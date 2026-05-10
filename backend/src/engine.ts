@@ -289,13 +289,26 @@ function evaluateAndMaybeEndRound(match: MatchState, events: MatchEvent[]): void
   const bothStood = p1.stood && p2.stood;
 
   if (bothStood || deckEmpty) {
-    // Winner is strictly closest to target value (absolute difference).
-    const p1Diff = Math.abs(round.target - p1Total);
-    const p2Diff = Math.abs(round.target - p2Total);
-    
-    if (p1Diff < p2Diff) endRound(match, p1id, events);
-    else if (p2Diff < p1Diff) endRound(match, p2id, events);
-    else endRound(match, null, events); // Tie
+    const p1Over = p1Total > round.target;
+    const p2Over = p2Total > round.target;
+
+    if (p1Over && p2Over) {
+      // Both over: player closest to target (lowest total) wins
+      if (p1Total < p2Total) endRound(match, p1id, events);
+      else if (p2Total < p1Total) endRound(match, p2id, events);
+      else endRound(match, null, events);
+    } else if (p1Over) {
+      // P1 busted, P2 is safe: P2 loses round (P2 wins)
+      endRound(match, p2id, events);
+    } else if (p2Over) {
+      // P2 busted, P1 is safe: P1 wins
+      endRound(match, p1id, events);
+    } else {
+      // Both safe: highest total wins (closest to target)
+      if (p1Total > p2Total) endRound(match, p1id, events);
+      else if (p2Total < p1Total) endRound(match, p2id, events);
+      else endRound(match, null, events);
+    }
   }
 }
 
