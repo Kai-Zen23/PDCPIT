@@ -1,12 +1,12 @@
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router";
 import { motion, AnimatePresence } from "motion/react";
 import { 
   Heart, Plus, Minus, Target, Zap, Trash2, Scissors, 
-  Eraser, Shield, Repeat, TrendingUp, Search, Activity
+  Eraser, Shield, Repeat, TrendingUp, Search
 } from "lucide-react";
 import { useMatchConnection } from "../state/useMatch";
-import type { BackendPowerUp } from "../../lib/backend";
+import type { BackendPowerUp, MatchEvent } from "../../lib/backend";
 
 const POWER_UP_CONFIG: Record<BackendPowerUp, { icon: any, label: string }> = {
   card_destroyer: { icon: Trash2, label: "Destroy Opp" },
@@ -25,17 +25,38 @@ const POWER_UP_CONFIG: Record<BackendPowerUp, { icon: any, label: string }> = {
 export function Gameplay() {
   const navigate = useNavigate();
   const { state, events, error, isYourTurn, sendDraw, sendStand, usePowerUp } = useMatchConnection();
+  // Store timestamps at the moment events arrive, not at render time
+  const [timedEvents, setTimedEvents] = useState<Array<{ event: MatchEvent; ts: string }>>([]);
+
+  useEffect(() => {
+    if (events.length === 0) return;
+    // Sync timedEvents with the latest events list, adding ts for new ones
+    setTimedEvents((prev) => {
+      const prevLen = prev.length;
+      const newEvents = events.slice(0, events.length - prevLen);
+      const now = new Date().toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      return [
+        ...newEvents.map((e) => ({ event: e, ts: now })),
+        ...prev,
+      ].slice(0, 50);
+    });
+  }, [events]);
 
   useEffect(() => {
     if (state?.status === "FINISHED") {
-      const winnerId = state.round?.winnerPlayerId;
-      if (winnerId === state.you.playerId) {
+      // Check the match-level winner: find which player still has lives > 0.
+      // We can't rely on round?.winnerPlayerId because the last round might be a tie.
+      const you = state.you;
+      const opponent = state.opponent;
+      const youAlive = you.lives > 0;
+      const oppAlive = opponent ? opponent.lives > 0 : false;
+      if (youAlive && !oppAlive) {
         navigate("/victory");
       } else {
         navigate("/defeat");
       }
     }
-  }, [state?.status, state?.round?.winnerPlayerId, state?.you.playerId, navigate]);
+  }, [state?.status, state?.you.lives, state?.opponent?.lives, navigate]);
 
   if (!state) {
     return (
@@ -137,7 +158,7 @@ export function Gameplay() {
         </motion.div>
 
         {/* CENTER SECTION - Battlefield */}
-        <div className="flex-1 flex items-center justify-center px-6 py-8">
+        <div className="flex items-center justify-center px-6 py-4">
           <div className="grid grid-cols-2 gap-8 w-full max-w-4xl">
             {/* Target number */}
             <motion.div
@@ -160,28 +181,28 @@ export function Gameplay() {
             </motion.div>
 
             {/* Action log */}
-            <div className="bg-[#1E1E1E]/60 backdrop-blur-sm border border-[#9D4EDD]/30 rounded-xl p-4 flex flex-col">
-              <h4 className="text-[#9D4EDD] mb-3 text-sm uppercase tracking-wide flex items-center gap-2">
+            <div className="bg-[#1E1E1E]/60 backdrop-blur-sm border border-[#9D4EDD]/30 rounded-xl p-4">
+              <h4 className="text-[#9D4EDD] mb-2 text-xs uppercase tracking-wide flex items-center gap-2">
                 <div className="w-2 h-2 bg-[#9D4EDD] rounded-full animate-pulse"></div>
                 Neural Action Stream
               </h4>
-              <div className="flex-1 space-y-2 overflow-y-auto custom-scrollbar">
+              <div className="h-28 overflow-y-auto custom-scrollbar space-y-1">
                 <AnimatePresence mode="popLayout">
-                  {events.map((event, index) => (
+                  {timedEvents.slice(0, 5).map(({ event, ts }, index) => (
                     <motion.div
                       key={index}
-                      initial={{ opacity: 0, x: -20 }}
+                      initial={{ opacity: 0, x: -10 }}
                       animate={{ opacity: 1, x: 0 }}
-                      exit={{ opacity: 0, x: 20 }}
-                      className="text-[#B0B0B0] text-sm font-mono"
+                      exit={{ opacity: 0 }}
+                      className="text-[#B0B0B0] text-xs font-mono truncate"
                     >
-                      <span className="text-[#4CC9F0]">[{new Date().toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })}]</span> {event.type}
+                      <span className="text-[#4CC9F0]">[{ts}]</span> {event.type}
                     </motion.div>
                   ))}
                 </AnimatePresence>
                 {error && (
-                  <div className="text-red-400 text-xs mt-2 p-2 bg-red-900/20 border border-red-900/50 rounded italic">
-                    ERROR: {error.message}
+                  <div className="text-red-400 text-xs mt-1 p-1 bg-red-900/20 border border-red-900/50 rounded italic truncate">
+                    ERR: {error.message}
                   </div>
                 )}
               </div>

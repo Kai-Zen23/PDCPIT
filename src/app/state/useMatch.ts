@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { nanoid } from "nanoid";
-import type { BackendPowerUp, BackendTarget, BackendSocket, MatchEvent, MatchView } from "../../lib/backend";
+import type { BackendPowerUp, BackendSocket, MatchEvent, MatchView } from "../../lib/backend";
 import { createBackendSocket } from "../../lib/backend";
 import { loadSession } from "../../lib/session";
 
@@ -14,16 +14,8 @@ export function useMatchConnection() {
   const socketRef = useRef<BackendSocket | null>(null);
 
   const youId = session?.playerId ?? "";
-  const matchId = session?.matchId ?? "";
 
   const isYourTurn = !!(state?.round && state.round.activePlayerId === youId);
-
-  const nextOverrideTarget = useMemo((): BackendTarget => {
-    const current = state?.round?.target ?? 21;
-    if (current === 19) return 21;
-    if (current === 21) return 28;
-    return 19;
-  }, [state?.round?.target]);
 
   useEffect(() => {
     if (!session) return;
@@ -34,8 +26,13 @@ export function useMatchConnection() {
     socket.on("match:event", (e) => setEvents((prev) => [e, ...prev].slice(0, 50)));
     socket.on("match:error", (e) => setError(e));
 
+    // Bug fix: emit match:join AFTER the socket is connected, not before.
+    // Emitting before connect() resolves means the event is lost.
+    socket.once("connect", () => {
+      socket.emit("match:join", { matchId: session.matchId, playerId: session.playerId });
+    });
+
     socket.connect();
-    socket.emit("match:join", { matchId: session.matchId, playerId: session.playerId });
 
     return () => {
       socket.removeAllListeners();

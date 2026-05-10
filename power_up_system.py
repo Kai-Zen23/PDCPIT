@@ -193,7 +193,10 @@ def advance_round(game_state, powerup_pool):
 
 def main():
     # Initialize Game State
-    deck = ([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13] * 4)
+    # Cards are 1-11, each value appearing exactly ONCE per round.
+    # No duplicate values are possible: each card is consumed from the deck
+    # when drawn and never returned, so both players always hold distinct values.
+    deck = list(range(1, 12))  # [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
     random.shuffle(deck)
     
     game_state = {

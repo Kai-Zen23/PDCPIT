@@ -15,6 +15,9 @@ const MAX_TURNS_PER_ROUND = 3;
 const MAX_CARDS_PER_PLAYER = 4;
 
 function shuffledDeck(): number[] {
+  // Cards are 1–11 only, each value appearing exactly ONCE.
+  // Because cards are consumed via .shift()/.pop() and never re-added,
+  // the same value can NEVER be held by two players simultaneously.
   const deck = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
   for (let i = deck.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
@@ -389,15 +392,35 @@ export function commandPowerUp(
     }
     case "target_shift_19": {
       round.target = 19;
-      break;
+      // Don't re-evaluate bust conditions on a target shift — only card draws should
+      // trigger a bust. Mark the power-up used, pass turn, and skip evaluation.
+      ps.powerUpUsedThisRound = true;
+      me.powerUps.splice(idx, 1);
+      ps.turnsTaken += 1;
+      events.push({ type: "POWER_UP:USED", matchId: match.id, playerId, powerUp: powerUpType });
+      maybeForceStand(round, playerId, events, match.id);
+      if (!round.ended) passTurn(round, match.id, events);
+      return events;
     }
     case "target_shift_21": {
       round.target = 21;
-      break;
+      ps.powerUpUsedThisRound = true;
+      me.powerUps.splice(idx, 1);
+      ps.turnsTaken += 1;
+      events.push({ type: "POWER_UP:USED", matchId: match.id, playerId, powerUp: powerUpType });
+      maybeForceStand(round, playerId, events, match.id);
+      if (!round.ended) passTurn(round, match.id, events);
+      return events;
     }
     case "target_shift_28": {
       round.target = 28;
-      break;
+      ps.powerUpUsedThisRound = true;
+      me.powerUps.splice(idx, 1);
+      ps.turnsTaken += 1;
+      events.push({ type: "POWER_UP:USED", matchId: match.id, playerId, powerUp: powerUpType });
+      maybeForceStand(round, playerId, events, match.id);
+      if (!round.ended) passTurn(round, match.id, events);
+      return events;
     }
     case "shield": {
       ps.shielded = true;
