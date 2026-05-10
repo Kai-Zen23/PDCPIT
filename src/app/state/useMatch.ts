@@ -6,45 +6,69 @@ import { loadSession } from "../../lib/session";
 
 type MatchError = { commandId?: string; message: string };
 
+let globalSocket: BackendSocket | null = null;
+
 export function useMatchConnection() {
   const session = loadSession();
   const [state, setState] = useState<MatchView | null>(null);
   const [events, setEvents] = useState<MatchEvent[]>([]);
   const [error, setError] = useState<MatchError | null>(null);
-  const socketRef = useRef<BackendSocket | null>(null);
 
   const youId = session?.playerId ?? "";
 
   const isYourTurn = !!(state?.round && state.round.activePlayerId === youId);
 
   useEffect(() => {
+    if (session && !state) {
+      // Fetch initial state via HTTP to avoid waiting for WebSocket connect
+      import("../../lib/backend").then(({ apiGetMatchState }) => {
+        apiGetMatchState(session.matchId, session.playerId)
+          .then((s) => setState(s))
+          .catch(() => {});
+      });
+    }
+  }, [session?.matchId, session?.playerId]);
+
+  useEffect(() => {
     if (!session) return;
-    const socket = createBackendSocket();
-    socketRef.current = socket;
 
-    socket.on("match:state", (s) => setState(s));
-    socket.on("match:event", (e) => setEvents((prev) => [e, ...prev].slice(0, 50)));
-    socket.on("match:error", (e) => setError(e));
+    if (!globalSocket) {
+      globalSocket = createBackendSocket();
+    }
+    const socket = globalSocket;
 
-    // Bug fix: emit match:join AFTER the socket is connected, not before.
-    // Emitting before connect() resolves means the event is lost.
-    socket.once("connect", () => {
+    const onState = (s: MatchView) => setState(s);
+    const onEvent = (e: MatchEvent) => setEvents((prev) => [e, ...prev].slice(0, 50));
+    const onError = (e: MatchError) => setError(e);
+    const onConnect = () => {
       socket.emit("match:join", { matchId: session.matchId, playerId: session.playerId });
-    });
+    };
 
-    socket.connect();
+    socket.on("match:state", onState);
+    socket.on("match:event", onEvent);
+    socket.on("match:error", onError);
+    socket.on("connect", onConnect);
+
+    if (socket.connected) {
+      // If already connected, join immediately
+      onConnect();
+    } else {
+      socket.connect();
+    }
 
     return () => {
-      socket.removeAllListeners();
-      socket.disconnect();
-      socketRef.current = null;
+      socket.off("match:state", onState);
+      socket.off("match:event", onEvent);
+      socket.off("match:error", onError);
+      socket.off("connect", onConnect);
+      // We keep globalSocket connected to avoid disconnect/reconnect on navigation
     };
   }, [session?.matchId, session?.playerId]);
 
   function sendCommand(type: "DRAW" | "STAND") {
-    if (!session) return;
+    if (!session || !globalSocket) return;
     setError(null);
-    socketRef.current?.emit("round:command", {
+    globalSocket.emit("round:command", {
       matchId: session.matchId,
       commandId: nanoid(10),
       type,
@@ -52,9 +76,9 @@ export function useMatchConnection() {
   }
 
   function usePowerUp(powerUp: BackendPowerUp, payloadExtra: any = {}) {
-    if (!session) return;
+    if (!session || !globalSocket) return;
     setError(null);
-    socketRef.current?.emit("round:command", {
+    globalSocket.emit("round:command", {
       matchId: session.matchId,
       commandId: nanoid(10),
       type: "POWER_UP",

@@ -438,8 +438,9 @@ export function commandPowerUp(
     }
     case "sudden_risk": {
       if (ps.hand.length === 0) throw new Error("You have no cards.");
-      const lastCard = ps.hand[ps.hand.length - 1];
-      lastCard.value *= 2;
+      const randomIdx = Math.floor(Math.random() * ps.hand.length);
+      const randomCard = ps.hand[randomIdx];
+      randomCard.value *= 2;
       break;
     }
     case "lucky_replace": {

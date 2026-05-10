@@ -25,6 +25,10 @@ const POWER_UP_CONFIG: Record<BackendPowerUp, { icon: any, label: string }> = {
 export function Gameplay() {
   const navigate = useNavigate();
   const { state, events, error, isYourTurn, sendDraw, sendStand, usePowerUp } = useMatchConnection();
+  
+  // State for power-ups that require targeting a specific card
+  const [pendingPowerUp, setPendingPowerUp] = useState<{ type: BackendPowerUp; indexInYourPowerUps: number } | null>(null);
+
   // Store timestamps at the moment events arrive, not at render time
   const [timedEvents, setTimedEvents] = useState<Array<{ event: MatchEvent; ts: string }>>([]);
 
@@ -121,30 +125,55 @@ export function Gameplay() {
 
             {/* Opponent cards */}
             <div className="flex gap-3 justify-center">
-              {round?.opponent?.hand.map((card, index) => (
-                <motion.div
-                  key={card.id}
-                  initial={{ opacity: 0, scale: 0.8, rotateY: 90 }}
-                  animate={{ opacity: 1, scale: 1, rotateY: 0 }}
-                  transition={{ delay: index * 0.1 }}
-                  className={`w-20 h-28 rounded-xl flex items-center justify-center ${
-                    !card.hidden
-                      ? 'bg-gradient-to-br from-[#1E1E1E] to-[#2A2A2A] border-2 border-[#9D4EDD]'
-                      : 'bg-gradient-to-br from-[#2A2A2A] to-[#1E1E1E] border-2 border-[#B0B0B0]/30'
-                  }`}
-                  style={{
-                    boxShadow: !card.hidden ? '0 0 20px rgba(157, 78, 221, 0.5)' : 'none'
-                  }}
-                >
-                  {!card.hidden ? (
-                    <span className="text-4xl text-[#9D4EDD] font-orbitron">
-                      {card.value}
-                    </span>
-                  ) : (
-                    <span className="text-4xl text-[#B0B0B0]">?</span>
-                  )}
-                </motion.div>
-              ))}
+              {round?.opponent?.hand.map((card, index) => {
+                const isTargetable = pendingPowerUp?.type === "card_destroyer";
+                return (
+                  <motion.div
+                    key={card.id}
+                    initial={{ opacity: 0, scale: 0.8, rotateY: 90 }}
+                    animate={{ 
+                      opacity: 1, 
+                      scale: isTargetable ? [1, 1.05, 1] : 1, 
+                      rotateY: 0,
+                      borderColor: isTargetable ? "#FF0000" : (!card.hidden ? "#9D4EDD" : "rgba(176, 176, 176, 0.3)")
+                    }}
+                    transition={{ 
+                      delay: index * 0.1,
+                      scale: { repeat: isTargetable ? Infinity : 0, duration: 1 }
+                    }}
+                    onClick={() => {
+                      if (isTargetable) {
+                        usePowerUp("card_destroyer", { targetCardIndex: index });
+                        setPendingPowerUp(null);
+                      }
+                    }}
+                    className={`w-20 h-28 rounded-xl flex items-center justify-center relative ${
+                      isTargetable ? 'cursor-crosshair' : ''
+                    } ${
+                      !card.hidden
+                        ? 'bg-gradient-to-br from-[#1E1E1E] to-[#2A2A2A] border-2'
+                        : 'bg-gradient-to-br from-[#2A2A2A] to-[#1E1E1E] border-2'
+                    }`}
+                    style={{
+                      boxShadow: isTargetable ? '0 0 30px rgba(255, 0, 0, 0.6)' : (!card.hidden ? '0 0 20px rgba(157, 78, 221, 0.5)' : 'none')
+                    }}
+                  >
+                    {!card.hidden ? (
+                      <span className="text-4xl text-[#9D4EDD] font-orbitron">
+                        {card.value}
+                      </span>
+                    ) : (
+                      <span className="text-4xl text-[#B0B0B0]">?</span>
+                    )}
+                    {isTargetable && (
+                      <div className="absolute inset-0 bg-red-500/10 flex items-center justify-center">
+                        <div className="w-1 h-8 bg-red-500 rotate-45 absolute" />
+                        <div className="w-1 h-8 bg-red-500 -rotate-45 absolute" />
+                      </div>
+                    )}
+                  </motion.div>
+                );
+              })}
             </div>
 
             {/* Opponent total */}
@@ -253,22 +282,44 @@ export function Gameplay() {
 
             {/* Player cards */}
             <div className="flex gap-3 justify-center mb-6">
-              {round?.you?.hand.map((card, index) => (
-                <motion.div
-                  key={card.id}
-                  initial={{ opacity: 0, scale: 0.8, y: 50 }}
-                  animate={{ opacity: 1, scale: 1, y: 0 }}
-                  transition={{ delay: index * 0.1 }}
-                  className="w-24 h-36 bg-gradient-to-br from-[#1E1E1E] to-[#2A2A2A] border-2 border-[#4CC9F0] rounded-xl flex items-center justify-center"
-                  style={{
-                    boxShadow: '0 0 25px rgba(76, 201, 240, 0.6)'
-                  }}
-                >
-                  <span className="text-5xl text-[#4CC9F0] font-orbitron">
-                    {card.value}
-                  </span>
-                </motion.div>
-              ))}
+              {round?.you?.hand.map((card, index) => {
+                const isTargetable = pendingPowerUp?.type === "lucky_replace";
+                return (
+                  <motion.div
+                    key={card.id}
+                    initial={{ opacity: 0, scale: 0.8, y: 50 }}
+                    animate={{ 
+                      opacity: 1, 
+                      scale: isTargetable ? [1, 1.05, 1] : 1, 
+                      y: 0,
+                      borderColor: isTargetable ? "#4CC9F0" : "#4CC9F0" 
+                    }}
+                    transition={{ 
+                      delay: index * 0.1,
+                      scale: { repeat: isTargetable ? Infinity : 0, duration: 1 }
+                    }}
+                    onClick={() => {
+                      if (isTargetable) {
+                        usePowerUp("lucky_replace", { discardIndex: index });
+                        setPendingPowerUp(null);
+                      }
+                    }}
+                    className={`w-24 h-36 bg-gradient-to-br from-[#1E1E1E] to-[#2A2A2A] border-2 border-[#4CC9F0] rounded-xl flex items-center justify-center relative ${isTargetable ? 'cursor-pointer' : ''}`}
+                    style={{
+                      boxShadow: isTargetable ? '0 0 40px rgba(76, 201, 240, 0.8)' : '0 0 25px rgba(76, 201, 240, 0.6)'
+                    }}
+                  >
+                    <span className="text-5xl text-[#4CC9F0] font-orbitron">
+                      {card.value}
+                    </span>
+                    {isTargetable && (
+                      <div className="absolute inset-0 bg-[#4CC9F0]/10 flex items-center justify-center">
+                        <Zap className="w-10 h-10 text-[#4CC9F0]" />
+                      </div>
+                    )}
+                  </motion.div>
+                );
+              })}
             </div>
 
             {/* Action buttons */}
@@ -311,18 +362,34 @@ export function Gameplay() {
                 {you.powerUps.map((pu, i) => {
                   const config = POWER_UP_CONFIG[pu];
                   const Icon = config.icon;
+                  const isPending = pendingPowerUp?.indexInYourPowerUps === i;
+                  const needsTargeting = pu === "card_destroyer" || pu === "lucky_replace";
+
                   return (
                     <motion.button
                       key={`${pu}-${i}`}
                       whileHover={{ scale: 1.05 }}
                       whileTap={{ scale: 0.95 }}
-                      onClick={() => usePowerUp(pu)}
+                      onClick={() => {
+                        if (needsTargeting) {
+                          if (isPending) setPendingPowerUp(null);
+                          else setPendingPowerUp({ type: pu, indexInYourPowerUps: i });
+                        } else {
+                          usePowerUp(pu);
+                        }
+                      }}
                       disabled={!isYourTurn || round?.you?.powerUpUsedThisRound}
-                      className="bg-[#121212] border border-[#4CC9F0]/40 rounded-lg p-3 flex flex-col items-center gap-2 hover:border-[#4CC9F0] hover:bg-[#4CC9F0]/10 transition-all disabled:opacity-30 disabled:cursor-not-allowed"
-                      style={{ boxShadow: '0 0 15px rgba(76, 201, 240, 0.2)' }}
+                      className={`bg-[#121212] border rounded-lg p-3 flex flex-col items-center gap-2 transition-all disabled:opacity-30 disabled:cursor-not-allowed ${
+                        isPending 
+                          ? 'border-[#9D4EDD] bg-[#9D4EDD]/20 animate-pulse' 
+                          : 'border-[#4CC9F0]/40 hover:border-[#4CC9F0] hover:bg-[#4CC9F0]/10'
+                      }`}
+                      style={{ boxShadow: isPending ? '0 0 20px #9D4EDD' : '0 0 15px rgba(76, 201, 240, 0.2)' }}
                     >
-                      <Icon className="w-6 h-6 text-[#4CC9F0]" />
-                      <span className="text-[#B0B0B0] text-[10px] uppercase text-center">{config.label}</span>
+                      <Icon className={`w-6 h-6 ${isPending ? 'text-[#9D4EDD]' : 'text-[#4CC9F0]'}`} />
+                      <span className={`text-[10px] uppercase text-center ${isPending ? 'text-[#F5F5F5]' : 'text-[#B0B0B0]'}`}>
+                        {isPending ? "SELECT TARGET" : config.label}
+                      </span>
                     </motion.button>
                   );
                 })}
