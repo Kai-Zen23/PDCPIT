@@ -220,6 +220,28 @@ io.on("connection", (socket) => {
   });
 });
 
+// ---- Turn Timer Logic (15s timeout)
+const TURN_TIMEOUT_MS = 15000;
+setInterval(() => {
+  const now = Date.now();
+  for (const [matchId, record] of listMatches()) {
+    const { match } = record;
+    if (match.status !== "IN_PROGRESS" || !match.round || match.round.ended) continue;
+
+    if (now - match.round.turnStartedAt > TURN_TIMEOUT_MS) {
+      // Timeout! Force DRAW for active player to keep the game moving.
+      try {
+        const events = commandDraw(match, match.round.activePlayerId);
+        for (const ev of events) io.to(room(matchId)).emit("match:event", ev);
+        maybeAdvanceAfterRound(record);
+        emitState(matchId);
+      } catch (e) {
+        // ignore if already ended or other error
+      }
+    }
+  }
+}, 1000);
+
 server.listen(PORT, () => {
   // eslint-disable-next-line no-console
   console.log(`Backend listening on :${PORT}`);

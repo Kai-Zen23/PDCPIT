@@ -3,29 +3,44 @@ import { useNavigate } from "react-router";
 import { motion, AnimatePresence } from "motion/react";
 import { 
   Heart, Plus, Minus, Target, Zap, Trash2, Scissors, 
-  Eraser, Shield, Repeat, TrendingUp, Search
+  Eraser, Shield, Repeat, TrendingUp, Search, Trophy,
+  XCircle, CheckCircle2, RotateCcw, RefreshCw, Swords,
+  Wifi, ArrowRight
 } from "lucide-react";
 import { useMatchConnection } from "../state/useMatch";
 import type { BackendPowerUp, MatchEvent } from "../../lib/backend";
 
 const POWER_UP_CONFIG: Record<BackendPowerUp, { icon: any, label: string }> = {
-  card_destroyer: { icon: Trash2, label: "Destroy Opp" },
-  rightmost_removal: { icon: Scissors, label: "Rem Opp Last" },
-  self_cleanse: { icon: Eraser, label: "Rem Self Last" },
-  double_purge: { icon: Trash2, label: "Purge 2" },
+  card_destroyer: { icon: Trash2, label: "Card Destroyer" },
+  rightmost_removal: { icon: Scissors, label: "Opp Removal" },
+  self_cleanse: { icon: Eraser, label: "Self Cleanse" },
+  double_purge: { icon: RefreshCw, label: "Double Purge" },
   target_shift_19: { icon: Target, label: "Target 19" },
   target_shift_21: { icon: Target, label: "Target 21" },
   target_shift_28: { icon: Target, label: "Target 28" },
   shield: { icon: Shield, label: "Shield" },
-  random_swap: { icon: Repeat, label: "Swap Random" },
-  sudden_risk: { icon: TrendingUp, label: "Double Last" },
-  lucky_replace: { icon: Search, label: "Replace One" },
+  random_swap: { icon: Repeat, label: "Random Swap" },
+  sudden_risk: { icon: TrendingUp, label: "Sudden Risk" },
+  lucky_replace: { icon: RotateCcw, label: "Lucky Replace" },
 };
 
 export function Gameplay() {
   const navigate = useNavigate();
-  const { state, events, error, isYourTurn, sendDraw, sendStand, usePowerUp } = useMatchConnection();
+  const { state: liveState, events, error, isYourTurn, sendDraw, sendStand, usePowerUp } = useMatchConnection();
   
+  // Latched state for round results
+  const [roundResults, setRoundResults] = useState<any | null>(null);
+  
+  // Use results if available, otherwise live state
+  const state = roundResults || liveState;
+
+  // Detect round end to show results
+  useEffect(() => {
+    if (liveState?.round?.ended && !roundResults) {
+      setRoundResults(liveState);
+    }
+  }, [liveState, roundResults]);
+
   // State for power-ups that require targeting a specific card
   const [pendingPowerUp, setPendingPowerUp] = useState<{ type: BackendPowerUp; indexInYourPowerUps: number } | null>(null);
 
@@ -45,6 +60,21 @@ export function Gameplay() {
       ].slice(0, 50);
     });
   }, [events]);
+
+  // Countdown timer state
+  const [timeLeft, setLeft] = useState(15);
+
+  useEffect(() => {
+    if (!state?.round || state.round.ended) return;
+
+    const interval = setInterval(() => {
+      const elapsed = Date.now() - state.round.turnStartedAt;
+      const remaining = Math.max(0, 15 - Math.floor(elapsed / 1000));
+      setLeft(remaining);
+    }, 200);
+
+    return () => clearInterval(interval);
+  }, [state?.round?.turnStartedAt, state?.round?.ended]);
 
   useEffect(() => {
     if (state?.status === "FINISHED") {
@@ -193,20 +223,45 @@ export function Gameplay() {
             <motion.div
               initial={{ opacity: 0, scale: 0.8 }}
               animate={{ opacity: 1, scale: 1 }}
-              className="flex flex-col items-center justify-center"
+              className="bg-[#1E1E1E]/40 backdrop-blur-md border border-[#9D4EDD]/30 rounded-3xl p-6 flex flex-col items-center justify-center relative overflow-hidden"
             >
-              <Target className="w-12 h-12 text-[#9D4EDD] mb-4" />
-              <div className="text-center">
-                <p className="text-[#B0B0B0] text-sm uppercase tracking-wide mb-2">Target</p>
+              {/* Target */}
+              <div className="text-center mb-6">
+                <p className="text-[#B0B0B0] text-[10px] uppercase tracking-[0.3em] mb-1">Target Node</p>
                 <div
-                  className="text-8xl text-[#9D4EDD] font-orbitron"
-                  style={{
-                    textShadow: '0 0 60px rgba(157, 78, 221, 1), 0 0 100px rgba(157, 78, 221, 0.6)'
-                  }}
+                  className="text-7xl text-[#9D4EDD] font-orbitron leading-none"
+                  style={{ textShadow: '0 0 30px rgba(157, 78, 221, 0.8)' }}
                 >
                   {round?.target ?? 21}
                 </div>
               </div>
+
+              {/* Timer */}
+              <div className="flex flex-col items-center">
+                <div className="flex items-center gap-2 mb-1">
+                  <div className={`w-1.5 h-1.5 rounded-full ${isYourTurn ? 'bg-[#2ECC71]' : 'bg-[#B0B0B0]'} animate-pulse`} />
+                  <span className="text-[10px] text-[#B0B0B0] uppercase tracking-[0.2em]">
+                    {isYourTurn ? 'Your Sync' : 'Opponent Sync'}
+                  </span>
+                </div>
+                <div 
+                  className={`text-5xl font-orbitron leading-none transition-colors ${timeLeft <= 5 ? 'text-[#D62828] animate-pulse' : 'text-[#4CC9F0]'}`}
+                  style={{ 
+                    textShadow: timeLeft <= 5 
+                      ? '0 0 30px rgba(214, 40, 40, 0.6)' 
+                      : '0 0 30px rgba(76, 201, 240, 0.4)' 
+                  }}
+                >
+                  00:{timeLeft.toString().padStart(2, '0')}
+                </div>
+              </div>
+
+              {/* Scanning effect */}
+              <motion.div
+                className="absolute inset-x-0 h-[1px] bg-[#9D4EDD]/30"
+                animate={{ top: ['0%', '100%', '0%'] }}
+                transition={{ duration: 3, repeat: Infinity, ease: "linear" }}
+              />
             </motion.div>
 
             {/* Action log */}
@@ -403,6 +458,64 @@ export function Gameplay() {
           </div>
         </motion.div>
       </div>
+
+      <AnimatePresence>
+        {roundResults && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-black/80 backdrop-blur-md"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="relative bg-[#1E1E1E] border-2 border-[#9D4EDD] rounded-3xl p-8 max-w-sm w-full text-center shadow-[0_0_50px_rgba(157,78,221,0.5)]"
+            >
+              <div className="mb-6">
+                {roundResults.round.winnerPlayerId === state.you.playerId ? (
+                  <div className="flex flex-col items-center gap-4">
+                    <Trophy className="w-16 h-16 text-[#FFD700] drop-shadow-[0_0_15px_rgba(255,215,0,0.6)]" />
+                    <h2 className="text-3xl font-orbitron text-[#2ECC71]">ROUND WON!</h2>
+                  </div>
+                ) : roundResults.round.winnerPlayerId === null ? (
+                  <div className="flex flex-col items-center gap-4">
+                    <CheckCircle2 className="w-16 h-16 text-[#B0B0B0]" />
+                    <h2 className="text-3xl font-orbitron text-[#F5F5F5]">ROUND TIE</h2>
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-center gap-4">
+                    <XCircle className="w-16 h-16 text-[#D62828] drop-shadow-[0_0_15px_rgba(214,40,40,0.6)]" />
+                    <h2 className="text-3xl font-orbitron text-[#D62828]">ROUND LOST</h2>
+                  </div>
+                )}
+              </div>
+
+              <div className="space-y-4 mb-8">
+                <div className="flex justify-between items-center p-4 bg-[#121212] rounded-xl border border-[#4CC9F0]/30">
+                  <span className="text-[#B0B0B0] uppercase text-xs tracking-widest">You</span>
+                  <span className="text-2xl font-orbitron text-[#4CC9F0]">{roundResults.round.you.totalActual}</span>
+                </div>
+                <div className="flex justify-between items-center p-4 bg-[#121212] rounded-xl border border-[#9D4EDD]/30">
+                  <span className="text-[#B0B0B0] uppercase text-xs tracking-widest">Opponent</span>
+                  <span className="text-2xl font-orbitron text-[#9D4EDD]">{roundResults.round.opponent.totalVisible}</span>
+                </div>
+              </div>
+
+              <motion.button
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                onClick={() => setRoundResults(null)}
+                className="w-full py-4 bg-gradient-to-r from-[#9D4EDD] to-[#4CC9F0] rounded-xl text-white font-orbitron text-lg tracking-wider shadow-lg shadow-[#9D4EDD]/20"
+              >
+                CONTINUE
+              </motion.button>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       <style>{`
         .font-orbitron { font-family: 'Orbitron', sans-serif; }

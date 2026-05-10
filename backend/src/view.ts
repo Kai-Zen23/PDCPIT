@@ -55,6 +55,7 @@ export function viewForPlayer(match: MatchState, playerId: string): MatchViewFor
       winnerPlayerId: round.winnerPlayerId,
       deckCount: round.deck.length,
       revealAll,
+      turnStartedAt: round.turnStartedAt,
       you: {
         stood: yourRound.stood,
         turnsTaken: yourRound.turnsTaken,

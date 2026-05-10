@@ -100,6 +100,7 @@ export type RoundState = {
   winnerPlayerId: string | null; // null for tie
   // for reveal
   revealAll: boolean;
+  turnStartedAt: number;
 };
 
 export type MatchPlayer = {
@@ -157,6 +158,7 @@ export type MatchViewForPlayer = {
     };
     deckCount: number;
     revealAll: boolean;
+    turnStartedAt: number;
   };
 };
 

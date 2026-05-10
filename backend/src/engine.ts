@@ -11,8 +11,8 @@ import type {
 
 const BASE_TARGET: TargetValue = 21;
 const MAX_LIVES = 3;
-const MAX_TURNS_PER_ROUND = 3;
-const MAX_CARDS_PER_PLAYER = 4;
+// No turn or card limits per user requirements to allow "risky comeback plays"
+// Round ends only when both players STAND or deck is empty.
 
 function shuffledDeck(): number[] {
   // Cards are 1–11 only, each value appearing exactly ONCE.
@@ -178,6 +178,7 @@ export function startNextRound(match: MatchState): MatchEvent[] {
         ended: false,
         winnerPlayerId: null,
         revealAll: false,
+        turnStartedAt: Date.now(),
       };
       break;
     }
@@ -201,21 +202,17 @@ function ensureCanAct(round: RoundState, playerId: string): void {
   if (round.ended) throw new Error("Round already ended.");
   if (round.activePlayerId !== playerId) throw new Error("Not your turn.");
   if (ps.stood) throw new Error("You already stood.");
-  if (ps.turnsTaken >= MAX_TURNS_PER_ROUND) throw new Error("Turn limit reached.");
 }
 
 function maybeForceStand(round: RoundState, playerId: string, events: MatchEvent[], matchId: string): void {
-  const ps = round.players[playerId]!;
-  if (ps.turnsTaken >= MAX_TURNS_PER_ROUND && !ps.stood) {
-    ps.stood = true;
-    events.push({ type: "PLAYER:STOOD", matchId, playerId });
-  }
+  // Logic removed as per "no limit" rule. Players must explicitly STAND.
 }
 
 function passTurn(round: RoundState, matchId: string, events: MatchEvent[]): void {
   const playerIds = Object.keys(round.players);
   const other = playerIds.find((id) => id !== round.activePlayerId)!;
   round.activePlayerId = other;
+  round.turnStartedAt = Date.now();
   events.push({ type: "TURN:CHANGED", matchId, activePlayerId: other });
 }
 
@@ -247,36 +244,19 @@ function evaluateAndMaybeEndRound(match: MatchState, events: MatchEvent[]): void
   const p1Total = sumHand(p1.hand);
   const p2Total = sumHand(p2.hand);
 
-  const p1Bust = p1Total > round.target;
-  const p2Bust = p2Total > round.target;
-
-  if (p1Bust && p2Bust) {
-    // both bust -> tie
-    endRound(match, null, events);
-    return;
-  }
-  if (p1Bust) {
-    endRound(match, p2id, events);
-    return;
-  }
-  if (p2Bust) {
-    endRound(match, p1id, events);
-    return;
-  }
-
+  // Round ends ONLY when both players have stood OR the deck is completely empty.
+  // There are no auto-busts because power-ups can reduce your total later.
   const deckEmpty = round.deck.length === 0;
-  const p1TurnLimit = p1.turnsTaken >= MAX_TURNS_PER_ROUND;
-  const p2TurnLimit = p2.turnsTaken >= MAX_TURNS_PER_ROUND;
   const bothStood = p1.stood && p2.stood;
-  const bothTurnLimit = p1TurnLimit && p2TurnLimit;
 
-  if (bothStood || deckEmpty || bothTurnLimit) {
-    // closest to target wins; tie -> tie
+  if (bothStood || deckEmpty) {
+    // Winner is strictly closest to target value (absolute difference).
     const p1Diff = Math.abs(round.target - p1Total);
     const p2Diff = Math.abs(round.target - p2Total);
+    
     if (p1Diff < p2Diff) endRound(match, p1id, events);
     else if (p2Diff < p1Diff) endRound(match, p2id, events);
-    else endRound(match, null, events);
+    else endRound(match, null, events); // Tie
   }
 }
 
@@ -287,7 +267,6 @@ export function commandDraw(match: MatchState, playerId: string): MatchEvent[] {
   if (!round) throw new Error("No active round.");
   ensureCanAct(round, playerId);
   const ps = round.players[playerId]!;
-  if (ps.hand.length >= MAX_CARDS_PER_PLAYER) throw new Error("Card limit reached.");
   if (round.deck.length === 0) throw new Error("Deck is empty.");
 
   const events: MatchEvent[] = [];
@@ -297,7 +276,6 @@ export function commandDraw(match: MatchState, playerId: string): MatchEvent[] {
   ps.turnsTaken += 1;
   events.push({ type: "CARD:DRAWN", matchId: match.id, playerId, cardId: card.id });
 
-  maybeForceStand(round, playerId, events, match.id);
   evaluateAndMaybeEndRound(match, events);
   if (!round.ended) passTurn(round, match.id, events);
   return events;
@@ -438,9 +416,8 @@ export function commandPowerUp(
     }
     case "sudden_risk": {
       if (ps.hand.length === 0) throw new Error("You have no cards.");
-      const randomIdx = Math.floor(Math.random() * ps.hand.length);
-      const randomCard = ps.hand[randomIdx];
-      randomCard.value *= 2;
+      const newestCard = ps.hand[ps.hand.length - 1];
+      newestCard.value *= 2;
       break;
     }
     case "lucky_replace": {
@@ -462,7 +439,6 @@ export function commandPowerUp(
   ps.turnsTaken += 1;
   events.push({ type: "POWER_UP:USED", matchId: match.id, playerId, powerUp: powerUpType });
 
-  maybeForceStand(round, playerId, events, match.id);
   evaluateAndMaybeEndRound(match, events);
   if (!round.ended) passTurn(round, match.id, events);
   return events;
