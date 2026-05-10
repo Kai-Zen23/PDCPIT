@@ -98,6 +98,7 @@ export function createMatch(matchId: string, playerId: string, playerName: strin
     readyStatus: { [playerId]: false },
     readyCountdownExpiresAt: null,
     round: null,
+    winnerPlayerId: null,
   };
 }
 
@@ -267,6 +268,7 @@ function endRound(match: MatchState, winnerPlayerId: string | null, events: Matc
     events.push({ type: "LIFE:LOST", matchId: match.id, playerId: loserId, lives: match.players[loserId]!.lives });
     if (match.players[loserId]!.lives <= 0) {
       match.status = "FINISHED";
+      match.winnerPlayerId = winnerPlayerId;
       events.push({ type: "MATCH:ENDED", matchId: match.id, winnerPlayerId });
     }
   }

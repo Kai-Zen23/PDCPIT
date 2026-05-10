@@ -28,6 +28,7 @@ export function viewForPlayer(match: MatchState, playerId: string): MatchViewFor
     matchId: match.id,
     status: match.status,
     serverTime: Date.now(),
+    winnerPlayerId: match.winnerPlayerId,
     readyStatus: { ...match.readyStatus },
     readyCountdownExpiresAt: match.readyCountdownExpiresAt,
     you: { playerId, name: you.name, lives: you.lives, powerUps: [...you.powerUps] },

@@ -67,6 +67,19 @@ export function maybeAdvanceAfterRound(record: MatchRecord): void {
 
   if (completedRound >= 3) {
     match.status = "FINISHED";
+    
+    // Final health-based tie-breaker
+    const [p1id, p2id] = match.playerOrder;
+    const p1 = match.players[p1id!]!;
+    const p2 = match.players[p2id!]!;
+
+    if (p1.lives > p2.lives) {
+      match.winnerPlayerId = p1id!;
+    } else if (p2.lives > p1.lives) {
+      match.winnerPlayerId = p2id!;
+    } else {
+      match.winnerPlayerId = null; // DRAW
+    }
     return;
   }
 }

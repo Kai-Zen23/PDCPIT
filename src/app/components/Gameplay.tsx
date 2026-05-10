@@ -113,14 +113,11 @@ export function Gameplay() {
 
   useEffect(() => {
     if (state?.status === "FINISHED") {
-      // Check the match-level winner: find which player still has lives > 0.
-      // We can't rely on round?.winnerPlayerId because the last round might be a tie.
-      const you = state.you;
-      const opponent = state.opponent;
-      const youAlive = you.lives > 0;
-      const oppAlive = opponent ? opponent.lives > 0 : false;
-      if (youAlive && !oppAlive) {
+      const youId = state.you.playerId;
+      if (state.winnerPlayerId === youId) {
         navigate("/victory");
+      } else if (state.winnerPlayerId === null) {
+        navigate("/draw"); // New draw route or similar
       } else {
         navigate("/defeat");
       }

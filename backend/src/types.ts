@@ -120,6 +120,7 @@ export type MatchState = {
   readyStatus: Record<string, boolean>;
   readyCountdownExpiresAt: number | null;
   round: RoundState | null;
+  winnerPlayerId: string | null; // match-level winner
 };
 
 // ---- Views (filtered for each player)
@@ -135,6 +136,7 @@ export type MatchViewForPlayer = {
   matchId: string;
   status: MatchState["status"];
   serverTime: number;
+  winnerPlayerId: string | null;
   readyStatus: Record<string, boolean>;
   readyCountdownExpiresAt: number | null;
   you: { playerId: string; name: string; lives: number; powerUps: PowerUpType[] };
