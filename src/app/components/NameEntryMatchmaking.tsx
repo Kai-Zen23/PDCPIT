@@ -59,10 +59,15 @@ export function NameEntryMatchmaking() {
 
     return () => {
       clearInterval(interval);
+    };
+  }, [matchState, navigate]);
+
+  useEffect(() => {
+    return () => {
       if (foundTimerRef.current) window.clearTimeout(foundTimerRef.current);
       if (connectTimerRef.current) window.clearTimeout(connectTimerRef.current);
     };
-  }, [matchState, navigate]);
+  }, []);
 
   const handleEnterQueue = async () => {
     if (playerName.trim().length < 2) return;
