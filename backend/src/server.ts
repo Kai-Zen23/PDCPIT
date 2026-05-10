@@ -81,6 +81,10 @@ app.post("/api/matchmaking/enqueue", (req, res) => {
     const waitingMatchId = findWaitingMatchId();
     if (waitingMatchId) {
       const { playerId } = joinExistingMatch(waitingMatchId, playerName);
+      // KEY FIX: Immediately push the updated IN_PROGRESS state to Player 1's
+      // already-connected socket. Without this, Player 1 is stuck on "Searching"
+      // until Player 2's WebSocket happens to connect — a race condition.
+      emitState(waitingMatchId);
       return res.json({ matchId: waitingMatchId, playerId, role: "JOINED" as const });
     }
 

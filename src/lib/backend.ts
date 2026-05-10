@@ -114,6 +114,14 @@ export async function apiEnqueueMatchmaking(
   return await res.json();
 }
 
+export async function apiGetMatchState(matchId: string, playerId: string): Promise<MatchView> {
+  const res = await fetch(
+    `${backendBaseUrl()}/api/matches/${encodeURIComponent(matchId)}/state/${encodeURIComponent(playerId)}`,
+  );
+  if (!res.ok) throw new Error(await res.text());
+  return await res.json();
+}
+
 export function createBackendSocket(): BackendSocket {
   return io(backendBaseUrl(), {
     transports: ["websocket"],

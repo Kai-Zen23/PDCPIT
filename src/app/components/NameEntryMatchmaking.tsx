@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { motion, AnimatePresence } from "motion/react";
 import { Users, Wifi, ArrowRight } from "lucide-react";
-import { apiEnqueueMatchmaking } from "../../lib/backend";
+import { apiEnqueueMatchmaking, apiGetMatchState } from "../../lib/backend";
 import { clearSession, saveSession } from "../../lib/session";
 import { useMatchConnection } from "../state/useMatch";
 
@@ -35,11 +35,34 @@ export function NameEntryMatchmaking() {
   }, [navigate, state]);
 
   useEffect(() => {
+    if (matchState !== "searching") return;
+
+    const session = loadSession();
+    if (!session) return;
+
+    const interval = setInterval(async () => {
+      try {
+        const polledState = await apiGetMatchState(session.matchId, session.playerId);
+        if (polledState.status === "IN_PROGRESS" && polledState.opponent && !transitionedRef.current) {
+          // Polling found the match! The socket might have missed it.
+          // Since useMatchConnection is also running, it will eventually sync,
+          // but we can trigger the transition here immediately.
+          transitionedRef.current = true;
+          setMatchState("found");
+          foundTimerRef.current = window.setTimeout(() => setMatchState("connecting"), 900);
+          connectTimerRef.current = window.setTimeout(() => navigate("/match-found"), 1800);
+        }
+      } catch (e) {
+        // ignore polling errors
+      }
+    }, 3000);
+
     return () => {
+      clearInterval(interval);
       if (foundTimerRef.current) window.clearTimeout(foundTimerRef.current);
       if (connectTimerRef.current) window.clearTimeout(connectTimerRef.current);
     };
-  }, []);
+  }, [matchState, navigate]);
 
   const handleEnterQueue = async () => {
     if (playerName.trim().length < 2) return;
