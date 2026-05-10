@@ -8,6 +8,7 @@ import { Defeat } from "./components/Defeat";
 import { AnonymousMatchmaking } from "./components/AnonymousMatchmaking";
 import { NameEntryMatchmaking } from "./components/NameEntryMatchmaking";
 import { MatchFound } from "./components/MatchFound";
+import { Draw } from "./components/Draw";
 
 export const router = createBrowserRouter([
   {
@@ -41,5 +42,9 @@ export const router = createBrowserRouter([
   {
     path: "/defeat",
     Component: Defeat,
+  },
+  {
+    path: "/draw",
+    Component: Draw,
   },
 ]);

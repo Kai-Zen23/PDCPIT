@@ -306,7 +306,7 @@ function evaluateAndMaybeEndRound(match: MatchState, events: MatchEvent[]): void
     } else {
       // Both safe: highest total wins (closest to target)
       if (p1Total > p2Total) endRound(match, p1id, events);
-      else if (p2Total < p1Total) endRound(match, p2id, events);
+      else if (p2Total > p1Total) endRound(match, p2id, events);
       else endRound(match, null, events);
     }
   }
