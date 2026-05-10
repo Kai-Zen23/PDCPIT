@@ -54,18 +54,14 @@ export function useMatchConnection() {
     });
   }
 
-  function usePowerUp(powerUp: BackendPowerUp) {
+  function usePowerUp(powerUp: BackendPowerUp, payloadExtra: any = {}) {
     if (!session) return;
     setError(null);
-    const payload =
-      powerUp === "OVERRIDE"
-        ? { type: "OVERRIDE", target: nextOverrideTarget }
-        : { type: powerUp };
     socketRef.current?.emit("round:command", {
       matchId: session.matchId,
       commandId: nanoid(10),
       type: "POWER_UP",
-      payload,
+      payload: { type: powerUp, ...payloadExtra },
     });
   }
 
@@ -78,7 +74,6 @@ export function useMatchConnection() {
     sendDraw: () => sendCommand("DRAW"),
     sendStand: () => sendCommand("STAND"),
     usePowerUp,
-    nextOverrideTarget,
   };
 }
 

@@ -1,6 +1,17 @@
 import { io, type Socket } from "socket.io-client";
 
-export type BackendPowerUp = "REMOVE" | "SWAP" | "OVERRIDE" | "DOUBLE";
+export type BackendPowerUp =
+  | "card_destroyer"
+  | "rightmost_removal"
+  | "self_cleanse"
+  | "double_purge"
+  | "target_shift_19"
+  | "target_shift_21"
+  | "target_shift_28"
+  | "shield"
+  | "random_swap"
+  | "sudden_risk"
+  | "lucky_replace";
 export type BackendTarget = 19 | 21 | 28;
 
 export type MatchView = {
@@ -23,6 +34,7 @@ export type MatchView = {
       hand: { id: string; value?: number; hidden?: boolean; visibility: "VISIBLE" | "HIDDEN_TO_OPPONENT" }[];
       totalVisible: number;
       totalActual: number;
+      shielded: boolean;
     };
     opponent?: {
       stood: boolean;
@@ -30,6 +42,7 @@ export type MatchView = {
       powerUpUsedThisRound: boolean;
       hand: { id: string; value?: number; hidden?: boolean; visibility: "VISIBLE" | "HIDDEN_TO_OPPONENT" }[];
       totalVisible: number;
+      shielded: boolean;
     };
   };
 };

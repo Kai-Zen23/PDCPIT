@@ -62,6 +62,7 @@ export function viewForPlayer(match: MatchState, playerId: string): MatchViewFor
         hand: yourRound.hand.map((c) => toCardView(c, revealAll, true)),
         totalVisible: sumVisible(yourRound.hand, revealAll, true),
         totalActual: sumVisible(yourRound.hand, true, true),
+        shielded: yourRound.shielded,
       },
       opponent: oppRound
         ? {
@@ -70,6 +71,7 @@ export function viewForPlayer(match: MatchState, playerId: string): MatchViewFor
             powerUpUsedThisRound: oppRound.powerUpUsedThisRound,
             hand: oppRound.hand.map((c) => toCardView(c, revealAll, false)),
             totalVisible: sumVisible(oppRound.hand, revealAll, false),
+            shielded: oppRound.shielded,
           }
         : undefined,
     },

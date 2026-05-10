@@ -67,6 +67,7 @@ function freshRoundPlayerState(): RoundPlayerState {
     powerUpUsedThisRound: false,
     hand: [],
     drawIndex: 0,
+    shielded: false,
   };
 }
 
@@ -88,7 +89,6 @@ export function createMatch(matchId: string, playerId: string, playerName: strin
         name: playerName,
         lives: MAX_LIVES,
         powerUps: [],
-        overrideUsed: false,
       },
     },
     playerOrder: [playerId],
@@ -103,21 +103,35 @@ export function addSecondPlayer(match: MatchState, playerId: string, playerName:
     name: playerName,
     lives: MAX_LIVES,
     powerUps: [],
-    overrideUsed: false,
   };
   match.playerOrder.push(playerId);
 }
 
 function grantPowerUpsForRound(match: MatchState, roundNumber: number): void {
-  if (roundNumber === 1) return;
   if (roundNumber !== 2 && roundNumber !== 3) return;
 
-  const pool: PowerUpType[] = ["REMOVE", "SWAP", "OVERRIDE", "DOUBLE"];
+  const pool: PowerUpType[] = [
+    "card_destroyer",
+    "rightmost_removal",
+    "self_cleanse",
+    "double_purge",
+    "target_shift_19",
+    "target_shift_21",
+    "target_shift_28",
+    "shield",
+    "random_swap",
+    "sudden_risk",
+    "lucky_replace",
+  ];
+
   for (const pid of match.playerOrder) {
-    for (let i = 0; i < 2; i++) {
-      const chosen = pool[Math.floor(Math.random() * pool.length)];
-      match.players[pid]!.powerUps.push(chosen);
-    }
+    const player = match.players[pid]!;
+    // Filter out duplicates
+    const available = pool.filter((p) => !player.powerUps.includes(p));
+    // Pick 2 random unique ones
+    const shuffled = [...available].sort(() => 0.5 - Math.random());
+    const chosen = shuffled.slice(0, 2);
+    player.powerUps.push(...chosen);
   }
 }
 
@@ -310,7 +324,7 @@ export function commandStand(match: MatchState, playerId: string): MatchEvent[] 
 export function commandPowerUp(
   match: MatchState,
   playerId: string,
-  powerUp: { type: PowerUpType; target?: TargetValue },
+  payload: any,
 ): MatchEvent[] {
   const round = match.round;
   if (!round) throw new Error("No active round.");
@@ -321,7 +335,8 @@ export function commandPowerUp(
   const ps = round.players[playerId]!;
   if (ps.powerUpUsedThisRound) throw new Error("You already used a power-up this round.");
 
-  const idx = me.powerUps.findIndex((p) => p === powerUp.type);
+  const powerUpType = payload.type as PowerUpType;
+  const idx = me.powerUps.findIndex((p) => p === powerUpType);
   if (idx === -1) throw new Error("You don't have that power-up.");
 
   const [p1id, p2id] = bothPlayers(match);
@@ -330,33 +345,86 @@ export function commandPowerUp(
 
   const events: MatchEvent[] = [];
 
-  const myLast = ps.hand[ps.hand.length - 1];
-  const oppLast = oppPs.hand[oppPs.hand.length - 1];
+  // Shield Check Logic
+  const offensivePowerUps: PowerUpType[] = ["card_destroyer", "rightmost_removal", "random_swap"];
+  if (offensivePowerUps.includes(powerUpType) && oppPs.shielded) {
+    oppPs.shielded = false;
+    // Consume power-up but do nothing else
+    me.powerUps.splice(idx, 1);
+    ps.powerUpUsedThisRound = true;
+    ps.turnsTaken += 1;
+    events.push({ type: "POWER_UP:USED", matchId: match.id, playerId, powerUp: powerUpType });
+    // We could add a "SHIELD_BLOCKED" event if types allowed it, but for now just log it
+    // console.log(`${oppPs.name}'s Shield blocked the power-up!`);
+    
+    maybeForceStand(round, playerId, events, match.id);
+    evaluateAndMaybeEndRound(match, events);
+    if (!round.ended) passTurn(round, match.id, events);
+    return events;
+  }
 
-  switch (powerUp.type) {
-    case "REMOVE": {
-      if (!oppLast) throw new Error("Opponent has no cards.");
+  switch (powerUpType) {
+    case "card_destroyer": {
+      if (oppPs.hand.length === 0) throw new Error("Opponent has no cards.");
+      const targetIdx = payload.targetCardIndex ?? 0;
+      const actualIdx = Math.max(0, Math.min(targetIdx, oppPs.hand.length - 1));
+      oppPs.hand.splice(actualIdx, 1);
+      break;
+    }
+    case "rightmost_removal": {
+      if (oppPs.hand.length === 0) throw new Error("Opponent has no cards.");
       oppPs.hand.pop();
       break;
     }
-    case "SWAP": {
-      if (!myLast || !oppLast) throw new Error("Both players must have at least 1 card to swap.");
-      ps.hand[ps.hand.length - 1] = oppLast;
-      oppPs.hand[oppPs.hand.length - 1] = myLast;
+    case "self_cleanse": {
+      if (ps.hand.length === 0) throw new Error("You have no cards.");
+      ps.hand.pop();
       break;
     }
-    case "OVERRIDE": {
-      if (me.overrideUsed) throw new Error("Override can only be used once per game.");
-      if (!powerUp.target) throw new Error("Override requires a target value.");
-      me.overrideUsed = true;
-      round.target = powerUp.target;
+    case "double_purge": {
+      if (ps.hand.length < 2) throw new Error("You need at least 2 cards.");
+      ps.hand.pop();
+      ps.hand.pop();
       break;
     }
-    case "DOUBLE": {
-      // Double targets your last drawn by immediately drawing one additional card
-      // (it amplifies the risk after your most recent draw).
-      if (ps.hand.length >= MAX_CARDS_PER_PLAYER) throw new Error("Card limit reached.");
+    case "target_shift_19": {
+      round.target = 19;
+      break;
+    }
+    case "target_shift_21": {
+      round.target = 21;
+      break;
+    }
+    case "target_shift_28": {
+      round.target = 28;
+      break;
+    }
+    case "shield": {
+      ps.shielded = true;
+      break;
+    }
+    case "random_swap": {
+      if (ps.hand.length === 0 || oppPs.hand.length === 0)
+        throw new Error("Both players must have at least 1 card.");
+      const myIdx = Math.floor(Math.random() * ps.hand.length);
+      const oppIdx = Math.floor(Math.random() * oppPs.hand.length);
+      const myCard = ps.hand[myIdx];
+      ps.hand[myIdx] = oppPs.hand[oppIdx];
+      oppPs.hand[oppIdx] = myCard;
+      break;
+    }
+    case "sudden_risk": {
+      if (ps.hand.length === 0) throw new Error("You have no cards.");
+      const lastCard = ps.hand[ps.hand.length - 1];
+      lastCard.value *= 2;
+      break;
+    }
+    case "lucky_replace": {
+      if (ps.hand.length === 0) throw new Error("You have no cards.");
       if (round.deck.length === 0) throw new Error("Deck is empty.");
+      const discardIdx = payload.discardIndex ?? 0;
+      const actualDiscardIdx = Math.max(0, Math.min(discardIdx, ps.hand.length - 1));
+      ps.hand.splice(actualDiscardIdx, 1);
       const value = round.deck.shift()!;
       const card = createCard(value, "VISIBLE", ps);
       ps.hand.push(card);
@@ -368,7 +436,7 @@ export function commandPowerUp(
   ps.powerUpUsedThisRound = true;
   me.powerUps.splice(idx, 1);
   ps.turnsTaken += 1;
-  events.push({ type: "POWER_UP:USED", matchId: match.id, playerId, powerUp: powerUp.type });
+  events.push({ type: "POWER_UP:USED", matchId: match.id, playerId, powerUp: powerUpType });
 
   maybeForceStand(round, playerId, events, match.id);
   evaluateAndMaybeEndRound(match, events);
