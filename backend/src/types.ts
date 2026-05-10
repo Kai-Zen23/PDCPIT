@@ -20,7 +20,7 @@ export const POWER_UP_TYPES = [
 ] as const;
 export type PowerUpType = (typeof POWER_UP_TYPES)[number];
 
-export const COMMAND_TYPES = ["DRAW", "STAND", "POWER_UP"] as const;
+export const COMMAND_TYPES = ["DRAW", "STAND", "POWER_UP", "NEXT_ROUND"] as const;
 export type CommandType = (typeof COMMAND_TYPES)[number];
 
 // ---- Public schemas
@@ -52,7 +52,7 @@ export const powerUpPayloadSchema = z.discriminatedUnion("type", [
 export const matchCommandSchema = z.object({
   matchId: z.string().min(1),
   commandId: z.string().min(1),
-  type: z.union([z.literal("DRAW"), z.literal("STAND"), z.literal("POWER_UP")]),
+  type: z.union([z.literal("DRAW"), z.literal("STAND"), z.literal("POWER_UP"), z.literal("NEXT_ROUND")]),
   payload: z.unknown().optional(),
 });
 export type MatchCommandInput = z.infer<typeof matchCommandSchema>;

@@ -59,31 +59,15 @@ export function unbindSocket(matchId: string, playerId: string, socketId: string
 
 export function maybeAdvanceAfterRound(record: MatchRecord): void {
   const { match } = record;
-  // If engine already marked the match as FINISHED (a player ran out of lives), stop.
   if (match.status === "FINISHED") return;
   if (match.status !== "IN_PROGRESS") return;
   if (!match.round?.ended) return;
 
   const completedRound = match.round.roundNumber;
 
-  // Only 3 rounds per match. After round 3, determine the winner by lives remaining.
   if (completedRound >= 3) {
     match.status = "FINISHED";
-    // Find the player with more lives (or tie: no winner event needed for a draw).
-    const [p1id, p2id] = match.playerOrder;
-    const p1 = match.players[p1id!]!;
-    const p2 = match.players[p2id!]!;
-    if (p1.lives > p2.lives) {
-      // already emitted via endRound — no need to re-emit MATCH:ENDED here
-      // just ensure status is FINISHED so the frontend navigates
-    } else if (p2.lives > p1.lives) {
-      // same
-    }
-    // If equal lives after round 3 it's a draw — status is FINISHED, no MATCH:ENDED event.
     return;
   }
-
-  // Advance to the next round.
-  startNextRound(match);
 }
 

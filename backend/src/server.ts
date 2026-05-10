@@ -196,7 +196,11 @@ io.on("connection", (socket) => {
       let events = [];
       if (type === "DRAW") events = commandDraw(record.match, playerId);
       else if (type === "STAND") events = commandStand(record.match, playerId);
-      else {
+      else if (type === "NEXT_ROUND") {
+        const { startNextRound } = await import("./engine.js");
+        startNextRound(record.match);
+        events = []; // startNextRound doesn't return events, but state update will notify players
+      } else {
         const pParsed = powerUpPayloadSchema.safeParse(payload);
         if (!pParsed.success) throw new Error("Invalid power-up payload.");
         events = commandPowerUp(record.match, playerId, pParsed.data);

@@ -94,6 +94,7 @@ export function useMatchConnection() {
     isYourTurn,
     sendDraw: () => sendCommand("DRAW"),
     sendStand: () => sendCommand("STAND"),
+    sendNextRound: () => sendCommand("NEXT_ROUND"),
     usePowerUp,
   };
 }

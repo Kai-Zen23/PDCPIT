@@ -26,7 +26,10 @@ const POWER_UP_CONFIG: Record<BackendPowerUp, { icon: any, label: string }> = {
 
 export function Gameplay() {
   const navigate = useNavigate();
-  const { state: liveState, events, error, isYourTurn, sendDraw, sendStand, usePowerUp } = useMatchConnection();
+  const { 
+    state: liveState, events, error, isYourTurn, 
+    sendDraw, sendStand, sendNextRound, usePowerUp 
+  } = useMatchConnection();
   
   // Latched state for round results
   const [roundResults, setRoundResults] = useState<any | null>(null);
@@ -48,6 +51,10 @@ export function Gameplay() {
   useEffect(() => {
     if (liveState?.round?.ended && !roundResults) {
       setRoundResults(liveState);
+    }
+    // Auto-clear results when a new round starts (indicated by round.ended being false in the live state)
+    if (liveState?.round && !liveState.round.ended && roundResults) {
+      setRoundResults(null);
     }
   }, [liveState, roundResults]);
 
@@ -518,10 +525,11 @@ export function Gameplay() {
               <motion.button
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
-                onClick={() => setRoundResults(null)}
-                className="w-full py-4 bg-gradient-to-r from-[#9D4EDD] to-[#4CC9F0] rounded-xl text-white font-orbitron text-lg tracking-wider shadow-lg shadow-[#9D4EDD]/20"
+                onClick={() => sendNextRound()}
+                className="w-full py-4 bg-gradient-to-r from-[#9D4EDD] to-[#4CC9F0] rounded-xl text-white font-orbitron text-lg tracking-wider shadow-lg shadow-[#9D4EDD]/20 flex items-center justify-center gap-2"
               >
                 CONTINUE
+                <ArrowRight className="w-5 h-5" />
               </motion.button>
             </motion.div>
           </div>
