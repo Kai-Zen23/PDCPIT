@@ -5,7 +5,7 @@ import { Server } from "socket.io";
 import { z } from "zod";
 
 import type { ClientToServerEvents, ServerToClientEvents } from "./types.js";
-import { createMatchSchema, joinMatchSchema, matchCommandSchema, powerUpPayloadSchema } from "./types.js";
+import { createMatchSchema, joinMatchSchema, matchCommandSchema, powerUpPayloadSchema, type MatchEvent } from "./types.js";
 import { commandDraw, commandPowerUp, commandStand } from "./engine.js";
 import {
   bindSocket,
@@ -197,7 +197,7 @@ io.on("connection", (socket) => {
     console.log(`[Socket] Player ${playerId} joined match ${matchId}`);
   });
 
-  socket.on("round:command", (raw) => {
+  socket.on("round:command", async (raw) => {
     const parsed = matchCommandSchema.safeParse(raw);
     if (!parsed.success) {
       socket.emit("match:error", { message: "Invalid command payload." });
@@ -219,7 +219,7 @@ io.on("connection", (socket) => {
     }
 
     try {
-      let events = [];
+      let events: MatchEvent[] = [];
       if (type === "DRAW") events = commandDraw(record.match, playerId);
       else if (type === "STAND") events = commandStand(record.match, playerId);
       else if (type === "NEXT_ROUND") {
