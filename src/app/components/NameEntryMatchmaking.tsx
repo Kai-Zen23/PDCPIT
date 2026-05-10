@@ -3,7 +3,7 @@ import { useNavigate } from "react-router";
 import { motion, AnimatePresence } from "motion/react";
 import { Users, Wifi, ArrowRight } from "lucide-react";
 import { apiEnqueueMatchmaking, apiGetMatchState } from "../../lib/backend";
-import { clearSession, saveSession } from "../../lib/session";
+import { clearSession, loadSession, saveSession } from "../../lib/session";
 import { useMatchConnection } from "../state/useMatch";
 
 type MatchState = "name-entry" | "searching" | "found" | "connecting";
