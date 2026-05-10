@@ -78,8 +78,25 @@ export function Gameplay() {
     });
   }, [events]);
 
-  // Countdown timer state
+  // Countdown timer state for turns
   const [timeLeft, setLeft] = useState(15);
+  // Countdown timer for ready phase
+  const [readyTimeLeft, setReadyTimeLeft] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (state?.status !== "WAITING" || !state.readyCountdownExpiresAt) {
+      setReadyTimeLeft(null);
+      return;
+    }
+
+    const interval = setInterval(() => {
+      const adjustedNow = Date.now() + clockOffset;
+      const remaining = Math.max(0, Math.ceil((state.readyCountdownExpiresAt! - adjustedNow) / 1000));
+      setReadyTimeLeft(remaining);
+    }, 200);
+
+    return () => clearInterval(interval);
+  }, [state?.readyCountdownExpiresAt, state?.status, clockOffset]);
 
   useEffect(() => {
     if (!state?.round || state.round.ended) return;
@@ -112,8 +129,98 @@ export function Gameplay() {
 
   if (!state) {
     return (
-      <div className="min-h-screen bg-[#121212] flex items-center justify-center">
-        <div className="text-[#4CC9F0] animate-pulse text-2xl font-orbitron">CONNECTING TO NEURAL LINK...</div>
+      <div className="min-h-screen bg-[#0A0A0A] flex flex-col items-center justify-center text-[#F5F5F5] font-orbitron">
+        <RefreshCw className="w-12 h-12 text-[#9D4EDD] animate-spin mb-4" />
+        <p className="text-[#B0B0B0] animate-pulse uppercase tracking-[0.3em]">Establishing Neural Link...</p>
+      </div>
+    );
+  }
+
+  // --- READY SCREEN OVERLAY ---
+  if (state.status === "WAITING" && state.opponent) {
+    const amReady = state.readyStatus[state.you.playerId];
+    const oppReady = state.readyStatus[state.opponent.playerId];
+
+    return (
+      <div className="min-h-screen bg-[#0A0A0A] p-6 flex flex-col items-center justify-center font-orbitron overflow-hidden relative">
+        {/* Background Grid */}
+        <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-20 pointer-events-none" />
+        <div className="absolute inset-0 bg-gradient-to-b from-[#9D4EDD15] via-transparent to-[#4CC9F015] pointer-events-none" />
+
+        <motion.div 
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="w-full max-w-xl bg-[#121212]/90 backdrop-blur-xl border-2 border-[#9D4EDD]/30 rounded-[2.5rem] p-10 relative z-10 shadow-[0_0_80px_rgba(157,78,221,0.2)]"
+        >
+          <div className="text-center mb-12">
+            <h1 className="text-4xl text-[#F5F5F5] mb-2 tracking-[0.2em]">NEURAL SYNC</h1>
+            <p className="text-[#B0B0B0] text-sm tracking-widest uppercase opacity-60">Authentication Protocol required</p>
+          </div>
+
+          <div className="grid grid-cols-2 gap-8 mb-12">
+            {/* You */}
+            <div className="flex flex-col items-center">
+              <div className={`w-20 h-20 rounded-full flex items-center justify-center border-2 mb-4 transition-all duration-500 ${amReady ? 'border-[#2ECC71] bg-[#2ECC71]/10 shadow-[0_0_30px_rgba(46,204,113,0.3)]' : 'border-[#B0B0B0]/20'}`}>
+                {amReady ? <CheckCircle2 className="w-10 h-10 text-[#2ECC71]" /> : <Search className="w-10 h-10 text-[#B0B0B0]/40" />}
+              </div>
+              <p className="text-[#F5F5F5] text-lg mb-1">{state.you.name}</p>
+              <p className={`text-[10px] uppercase tracking-widest ${amReady ? 'text-[#2ECC71]' : 'text-[#B0B0B0]/60'}`}>
+                {amReady ? 'Authenticated' : 'Pending'}
+              </p>
+            </div>
+
+            {/* Opponent */}
+            <div className="flex flex-col items-center">
+              <div className={`w-20 h-20 rounded-full flex items-center justify-center border-2 mb-4 transition-all duration-500 ${oppReady ? 'border-[#2ECC71] bg-[#2ECC71]/10 shadow-[0_0_30px_rgba(46,204,113,0.3)]' : 'border-[#B0B0B0]/20'}`}>
+                {oppReady ? <CheckCircle2 className="w-10 h-10 text-[#2ECC71]" /> : <Wifi className="w-10 h-10 text-[#B0B0B0]/40 animate-pulse" />}
+              </div>
+              <p className="text-[#F5F5F5] text-lg mb-1">{state.opponent.name}</p>
+              <p className={`text-[10px] uppercase tracking-widest ${oppReady ? 'text-[#2ECC71]' : 'text-[#B0B0B0]/60'}`}>
+                {oppReady ? 'Authenticated' : 'Syncing...'}
+              </p>
+            </div>
+          </div>
+
+          {readyTimeLeft !== null && (
+            <div className="text-center mb-8">
+              <p className="text-[#D62828] text-xs uppercase tracking-[0.3em] mb-2 animate-pulse">Sync Termination in</p>
+              <div className="text-5xl text-[#D62828] font-orbitron">{readyTimeLeft}s</div>
+            </div>
+          )}
+
+          <motion.button
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
+            onClick={() => sendReady()}
+            disabled={amReady}
+            className={`w-full py-5 rounded-2xl text-xl font-orbitron tracking-[0.2em] transition-all ${amReady ? 'bg-[#1E1E1E] text-[#B0B0B0]/40 border border-[#B0B0B0]/10 cursor-default' : 'bg-gradient-to-r from-[#9D4EDD] to-[#4CC9F0] text-white shadow-[0_0_40px_rgba(157,78,221,0.4)] hover:shadow-[0_0_60px_rgba(157,78,221,0.6)]'}`}
+          >
+            {amReady ? 'READY CONFIRMED' : 'INITIALIZE READY'}
+          </motion.button>
+        </motion.div>
+      </div>
+    );
+  }
+
+  // --- LOADING / SEARCHING STATE (NO OPPONENT YET) ---
+  if (state.status === "WAITING") {
+    return (
+      <div className="min-h-screen bg-[#0A0A0A] flex flex-col items-center justify-center text-[#F5F5F5] font-orbitron">
+        <div className="relative w-32 h-32 mb-8">
+          <motion.div 
+            animate={{ rotate: 360 }}
+            transition={{ duration: 4, repeat: Infinity, ease: "linear" }}
+            className="absolute inset-0 border-4 border-[#9D4EDD]/20 rounded-full border-t-[#9D4EDD]" 
+          />
+          <motion.div 
+            animate={{ rotate: -360 }}
+            transition={{ duration: 6, repeat: Infinity, ease: "linear" }}
+            className="absolute inset-4 border-2 border-[#4CC9F0]/20 rounded-full border-t-[#4CC9F0]" 
+          />
+          <Search className="absolute inset-0 m-auto w-8 h-8 text-[#9D4EDD] animate-pulse" />
+        </div>
+        <h1 className="text-2xl mb-2 tracking-[0.3em]">LOCATING OPPONENT</h1>
+        <p className="text-[#B0B0B0] text-xs uppercase tracking-widest opacity-60">Scanning Neural action stream...</p>
       </div>
     );
   }

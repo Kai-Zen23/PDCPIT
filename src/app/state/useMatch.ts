@@ -70,6 +70,7 @@ export function useMatchConnection() {
     setError(null);
     globalSocket.emit("round:command", {
       matchId: session.matchId,
+      playerId: session.playerId,
       commandId: nanoid(10),
       type,
     });
@@ -80,6 +81,7 @@ export function useMatchConnection() {
     setError(null);
     globalSocket.emit("round:command", {
       matchId: session.matchId,
+      playerId: session.playerId,
       commandId: nanoid(10),
       type: "POWER_UP",
       payload: { type: powerUp, ...payloadExtra },
@@ -95,6 +97,7 @@ export function useMatchConnection() {
     sendDraw: () => sendCommand("DRAW"),
     sendStand: () => sendCommand("STAND"),
     sendNextRound: () => sendCommand("NEXT_ROUND"),
+    sendReady: () => sendCommand("READY"),
     usePowerUp,
   };
 }

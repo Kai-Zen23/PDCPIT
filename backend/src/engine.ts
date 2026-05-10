@@ -95,6 +95,8 @@ export function createMatch(matchId: string, playerId: string, playerName: strin
       },
     },
     playerOrder: [playerId],
+    readyStatus: { [playerId]: false },
+    readyCountdownExpiresAt: null,
     round: null,
   };
 }
@@ -108,6 +110,7 @@ export function addSecondPlayer(match: MatchState, playerId: string, playerName:
     powerUps: [],
   };
   match.playerOrder.push(playerId);
+  match.readyStatus[playerId] = false;
 }
 
 function grantPowerUpsForRound(match: MatchState, roundNumber: number): void {
@@ -141,9 +144,31 @@ function grantPowerUpsForRound(match: MatchState, roundNumber: number): void {
 export function startMatch(match: MatchState): MatchEvent[] {
   const events: MatchEvent[] = [];
   match.status = "IN_PROGRESS";
+  match.readyCountdownExpiresAt = null;
+  for (const pid of match.playerOrder) match.readyStatus[pid] = true;
   events.push({ type: "MATCH:STARTED", matchId: match.id });
   events.push(...startNextRound(match));
   return events;
+}
+
+export function commandReady(match: MatchState, playerId: string): MatchEvent[] {
+  if (match.status !== "WAITING") throw new Error("Match already started.");
+  if (match.playerOrder.length < 2) throw new Error("Waiting for opponent.");
+
+  match.readyStatus[playerId] = true;
+
+  // If this is the first player to ready, start the 10s countdown
+  const readiedCount = Object.values(match.readyStatus).filter(Boolean).length;
+  if (readiedCount === 1) {
+    match.readyCountdownExpiresAt = Date.now() + 10000;
+  }
+
+  // If both are ready, start immediately
+  if (readiedCount === 2) {
+    return startMatch(match);
+  }
+
+  return []; // State update will handle UI
 }
 
 export function startNextRound(match: MatchState): MatchEvent[] {

@@ -204,25 +204,29 @@ io.on("connection", (socket) => {
       return;
     }
 
-    const { matchId, commandId, type, payload } = parsed.data;
+    const { matchId, playerId, commandId, type, payload } = parsed.data;
     const record = getMatch(matchId);
     if (!record) {
       socket.emit("match:error", { commandId, message: "Match not found." });
       return;
     }
 
-    // Determine playerId by socket binding (simple MVP).
-    const playerId = [...record.socketsByPlayer.entries()].find(([, sid]) => sid === socket.id)?.[0];
-    if (!playerId) {
-      socket.emit("match:error", { commandId, message: "Join match first." });
+    // Security: Ensure the player is actually in this match
+    if (!record.match.players[playerId]) {
+      socket.emit("match:error", { commandId, message: "You are not a player in this match." });
       return;
     }
+
+    // Optional: could also verify socket is in room(matchId), but playerId check is stronger.
 
     try {
       let events: MatchEvent[] = [];
       if (type === "DRAW") events = commandDraw(record.match, playerId);
       else if (type === "STAND") events = commandStand(record.match, playerId);
-      else if (type === "NEXT_ROUND") {
+      else if (type === "READY") {
+        const { commandReady } = await import("./engine.js");
+        events = commandReady(record.match, playerId);
+      } else if (type === "NEXT_ROUND") {
         const { startNextRound } = await import("./engine.js");
         startNextRound(record.match);
         events = []; // startNextRound doesn't return events, but state update will notify players
@@ -256,6 +260,22 @@ setInterval(() => {
   const now = Date.now();
   for (const [matchId, record] of listMatches()) {
     const { match } = record;
+    const now = Date.now();
+
+    // 1. Ready Timeout check
+    if (match.status === "WAITING" && match.readyCountdownExpiresAt && now > match.readyCountdownExpiresAt) {
+      const bothReady = Object.values(match.readyStatus).every(Boolean);
+      if (!bothReady) {
+        // Termination condition met
+        match.status = "FINISHED"; // Mark as finished/cancelled
+        match.readyCountdownExpiresAt = null;
+        io.to(room(matchId)).emit("match:error", { message: "Match terminated: One or more players failed to ready up." });
+        emitState(matchId);
+        continue;
+      }
+    }
+
+    // 2. Turn Timeout check
     if (match.status !== "IN_PROGRESS" || !match.round || match.round.ended) continue;
 
     if (now - match.round.turnStartedAt > TURN_TIMEOUT_MS) {

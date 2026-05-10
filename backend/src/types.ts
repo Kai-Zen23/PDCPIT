@@ -20,7 +20,7 @@ export const POWER_UP_TYPES = [
 ] as const;
 export type PowerUpType = (typeof POWER_UP_TYPES)[number];
 
-export const COMMAND_TYPES = ["DRAW", "STAND", "POWER_UP", "NEXT_ROUND"] as const;
+export const COMMAND_TYPES = ["DRAW", "STAND", "POWER_UP", "NEXT_ROUND", "READY"] as const;
 export type CommandType = (typeof COMMAND_TYPES)[number];
 
 // ---- Public schemas
@@ -51,8 +51,9 @@ export const powerUpPayloadSchema = z.discriminatedUnion("type", [
 
 export const matchCommandSchema = z.object({
   matchId: z.string().min(1),
+  playerId: z.string().min(1),
   commandId: z.string().min(1),
-  type: z.union([z.literal("DRAW"), z.literal("STAND"), z.literal("POWER_UP"), z.literal("NEXT_ROUND")]),
+  type: z.union([z.literal("DRAW"), z.literal("STAND"), z.literal("POWER_UP"), z.literal("NEXT_ROUND"), z.literal("READY")]),
   payload: z.unknown().optional(),
 });
 export type MatchCommandInput = z.infer<typeof matchCommandSchema>;
@@ -115,7 +116,9 @@ export type MatchState = {
   status: "WAITING" | "IN_PROGRESS" | "FINISHED";
   createdAt: number;
   players: Record<string, MatchPlayer>;
-  playerOrder: string[]; // length <= 2
+  playerOrder: string[]; // [p1, p2]
+  readyStatus: Record<string, boolean>;
+  readyCountdownExpiresAt: number | null;
   round: RoundState | null;
 };
 
@@ -132,6 +135,8 @@ export type MatchViewForPlayer = {
   matchId: string;
   status: MatchState["status"];
   serverTime: number;
+  readyStatus: Record<string, boolean>;
+  readyCountdownExpiresAt: number | null;
   you: { playerId: string; name: string; lives: number; powerUps: PowerUpType[] };
   opponent?: { playerId: string; name: string; lives: number; powerUpsCount: number };
   round?: {
