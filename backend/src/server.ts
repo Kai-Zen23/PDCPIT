@@ -140,15 +140,32 @@ function room(matchId: string) {
 function emitState(matchId: string) {
   const record = getMatch(matchId);
   if (!record) return;
+
+  // Primary: Emit to specifically bound socket IDs
   for (const playerId of record.match.playerOrder) {
     const socketId = record.socketsByPlayer.get(playerId);
-    if (!socketId) continue;
-    const s = io.sockets.sockets.get(socketId);
-    if (!s) continue;
-    try {
-      s.emit("match:state", viewForPlayer(record.match, playerId));
-    } catch {
-      // ignore
+    if (socketId) {
+      const s = io.sockets.sockets.get(socketId);
+      if (s) {
+        try {
+          s.emit("match:state", viewForPlayer(record.match, playerId));
+          continue; // Successfully sent to primary socket
+        } catch (e) { /* ignore */ }
+      }
+    }
+
+    // Fallback: If primary socket is gone, find any socket in the room with this pId
+    const roomName = room(matchId);
+    const roomSockets = io.sockets.adapter.rooms.get(roomName);
+    if (roomSockets) {
+      for (const sId of roomSockets) {
+        const s = io.sockets.sockets.get(sId);
+        if (s && (s as any).playerId === playerId) {
+          try {
+            s.emit("match:state", viewForPlayer(record.match, playerId));
+          } catch { /* ignore */ }
+        }
+      }
     }
   }
 }
@@ -164,11 +181,20 @@ io.on("connection", (socket) => {
       socket.emit("match:error", { message: "Unknown player." });
       return;
     }
+
+    // Tag the socket for easier identification
+    (socket as any).playerId = playerId;
+    (socket as any).matchId = matchId;
+
     socket.join(room(matchId));
     bindSocket(matchId, playerId, socket.id);
+    
+    // Send immediate state
     socket.emit("match:state", viewForPlayer(record.match, playerId));
-    // Sync both players whenever someone joins/rejoins.
+    
+    // Sync other players
     emitState(matchId);
+    console.log(`[Socket] Player ${playerId} joined match ${matchId}`);
   });
 
   socket.on("round:command", (raw) => {
@@ -234,6 +260,7 @@ setInterval(() => {
 
     if (now - match.round.turnStartedAt > TURN_TIMEOUT_MS) {
       const activePlayerId = match.round.activePlayerId;
+      console.log(`[Timer] Timeout for match ${matchId} (active: ${activePlayerId})`);
       try {
         const events = commandDraw(match, activePlayerId);
         for (const ev of events) io.to(room(matchId)).emit("match:event", ev);
