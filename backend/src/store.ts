@@ -72,7 +72,7 @@ export async function listActiveMatchIds(): Promise<string[]> {
 }
 
 export async function findWaitingMatchId(): Promise<string | null> {
-  return await redis.spop(WAITING_MATCHES_SET);
+  return await redis.srandmember(WAITING_MATCHES_SET);
 }
 
 export function newIds(): { matchId: string; playerId: string } {
@@ -119,20 +119,6 @@ export async function joinExistingMatch(
   return { playerId, record };
 }
 
-export async function addBotToMatch(matchId: string): Promise<void> {
-  const record = await getMatch(matchId);
-  if (!record || record.match.playerOrder.length >= 2) return;
-
-  const botId = `bot_${nanoid(5)}`;
-  const botNames = ["AlphaBot", "CardMaster", "RiskTaker", "SafePlay", "ClashBot"];
-  const name = botNames[Math.floor(Math.random() * botNames.length)]!;
-  
-  addSecondPlayer(record.match, botId, name);
-  record.match.players[botId]!.isBot = true;
-  record.match.readyStatus[botId] = true; // Bots are always ready
-  
-  await saveRecord(record);
-}
 
 
 export async function updateMatchState(match: MatchState): Promise<void> {
