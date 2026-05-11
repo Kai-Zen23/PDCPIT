@@ -77,6 +77,8 @@ app.post("/api/matchmaking/enqueue", async (req, res) => {
     if (waitingMatchId) {
       try {
         const { playerId } = await joinExistingMatch(waitingMatchId, playerName);
+        // NOTIFY: Explicitly broadcast that the match is now full/ready
+        io.to(room(waitingMatchId)).emit("match:event", { type: "MATCH:STARTED", matchId: waitingMatchId });
         await emitState(waitingMatchId);
         return res.json({ matchId: waitingMatchId, playerId, role: "JOINED" as const });
       } catch (e) {

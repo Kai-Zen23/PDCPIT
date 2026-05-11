@@ -37,16 +37,6 @@ async function saveRecord(record: MatchRecord): Promise<void> {
   // Save match state as JSON
   multi.set(MATCH_KEY(matchId), JSON.stringify(match));
 
-  // Save sockets as Hash
-  const socketsObj: Record<string, string> = {};
-  for (const [pId, sId] of socketsByPlayer.entries()) {
-    socketsObj[pId] = sId;
-  }
-  
-  if (Object.keys(socketsObj).length > 0) {
-    multi.hset(SOCKETS_KEY(matchId), socketsObj);
-  }
-
   // Manage indices
   if (match.status === "WAITING" && match.playerOrder.length === 1) {
     multi.sadd(WAITING_MATCHES_SET, matchId);
@@ -129,21 +119,13 @@ export async function updateMatchState(match: MatchState): Promise<void> {
 }
 
 export async function bindSocket(matchId: string, playerId: string, socketId: string): Promise<void> {
-  const record = await getMatch(matchId);
-  if (!record) return;
-  record.socketsByPlayer.set(playerId, socketId);
-  await saveRecord(record);
+  await redis.hset(SOCKETS_KEY(matchId), playerId, socketId);
 }
 
 export async function unbindSocket(matchId: string, playerId: string, socketId: string): Promise<void> {
-  const record = await getMatch(matchId);
-  if (!record) return;
-  const existing = record.socketsByPlayer.get(playerId);
+  const existing = await redis.hget(SOCKETS_KEY(matchId), playerId);
   if (existing === socketId) {
-    record.socketsByPlayer.delete(playerId);
-    // Also remove from Redis Hash explicitly
     await redis.hdel(SOCKETS_KEY(matchId), playerId);
-    await saveRecord(record);
   }
 }
 
