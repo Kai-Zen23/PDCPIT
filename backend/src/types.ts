@@ -109,6 +109,7 @@ export type MatchPlayer = {
   name: string;
   lives: number;
   powerUps: PowerUpType[];
+  isBot?: boolean;
 };
 
 export type MatchState = {

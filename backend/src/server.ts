@@ -17,6 +17,7 @@ import {
   maybeAdvanceAfterRound,
   updateMatchState,
   unbindSocket,
+  addBotToMatch,
 } from "./store.js";
 import { viewForPlayer } from "./view.js";
 
@@ -84,6 +85,16 @@ app.post("/api/matchmaking/enqueue", async (req, res) => {
     }
 
     const created = await createNewMatch(playerName);
+    
+    // BOT FALLBACK: If no one joins in 20 seconds, add a bot.
+    setTimeout(async () => {
+      const rec = await getMatch(created.matchId);
+      if (rec && rec.match.playerOrder.length === 1) {
+        await addBotToMatch(created.matchId);
+        await emitState(created.matchId);
+      }
+    }, 20000);
+
     return res.json({ matchId: created.matchId, playerId: created.playerId, role: "CREATED" as const });
   } catch (e) {
     return res.status(400).json({ error: e instanceof Error ? e.message : "Matchmaking failed" });
@@ -264,34 +275,59 @@ setInterval(async () => {
         match.status = "FINISHED";
         match.readyCountdownExpiresAt = null;
         io.to(room(matchId)).emit("match:error", { message: "Match terminated: One or more players failed to ready up." });
-        await updateMatchState(match); // explicitly save the FINISHED state
+        await updateMatchState(match); 
         await emitState(matchId);
         continue;
       }
     }
 
-    // 2. Turn Timeout check
+    // 2. Turn check (Human Timeout OR Bot Action)
     if (match.status !== "IN_PROGRESS" || !match.round || match.round.ended) continue;
 
-    if (now - match.round.turnStartedAt > TURN_TIMEOUT_MS) {
-      const activePlayerId = match.round.activePlayerId;
-      console.log(`[Timer] Timeout for match ${matchId} (active: ${activePlayerId})`);
+    const activePlayerId = match.round.activePlayerId;
+    const activePlayer = match.players[activePlayerId];
+    if (!activePlayer) continue;
+
+    const isBot = !!activePlayer.isBot;
+    const timeInTurn = now - match.round.turnStartedAt;
+
+    // Bot Logic or Human Timeout
+    if (isBot || timeInTurn > TURN_TIMEOUT_MS) {
+      // Bots move after 2 seconds to feel natural
+      if (isBot && timeInTurn < 2000) continue;
+
+      console.log(`[Timer] ${isBot ? "Bot" : "Timeout"} action for ${matchId} (player: ${activePlayerId})`);
+      
       try {
-        const events = commandDraw(match, activePlayerId);
+        let events: MatchEvent[] = [];
+        
+        if (isBot) {
+          // Simple Bot Strategy:
+          const roundP = match.round.players[activePlayerId];
+          const total = roundP?.hand.reduce((sum, c) => sum + c.value, 0) || 0;
+          
+          if (total < 17 && (roundP?.turnsTaken || 0) < 3) {
+            events = commandDraw(match, activePlayerId);
+          } else {
+            events = commandStand(match, activePlayerId);
+          }
+        } else {
+          // Human Timeout: Try Draw, then Stand
+          try {
+            events = commandDraw(match, activePlayerId);
+          } catch {
+            events = commandStand(match, activePlayerId);
+          }
+        }
+
         for (const ev of events) io.to(room(matchId)).emit("match:event", ev);
         await maybeAdvanceAfterRound(record);
         await emitState(matchId);
       } catch (e) {
-        try {
-          const events = commandStand(match, activePlayerId);
-          for (const ev of events) io.to(room(matchId)).emit("match:event", ev);
-          await maybeAdvanceAfterRound(record);
-          await emitState(matchId);
-        } catch (e2) {
-          match.round.turnStartedAt = now;
-          await updateMatchState(match);
-          await emitState(matchId);
-        }
+        // Fallback to prevent hang
+        match.round.turnStartedAt = now;
+        await updateMatchState(match);
+        await emitState(matchId);
       }
     }
   }
