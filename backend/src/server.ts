@@ -242,6 +242,7 @@ io.on("connection", (socket) => {
       }
 
       for (const ev of events) io.to(room(matchId)).emit("match:event", ev);
+      await updateMatchState(record.match);
       await maybeAdvanceAfterRound(record);
       await emitState(matchId);
     } catch (e) {

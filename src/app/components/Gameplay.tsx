@@ -28,7 +28,7 @@ export function Gameplay() {
   const navigate = useNavigate();
   const { 
     state: liveState, events, error, isYourTurn, 
-    sendDraw, sendStand, sendNextRound, usePowerUp 
+    sendDraw, sendStand, sendNextRound, sendReady, usePowerUp 
   } = useMatchConnection();
   
   // Latched state for round results
