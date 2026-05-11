@@ -19,6 +19,7 @@ import {
   unbindSocket,
   getQueueCount,
   clearWaitingMatch,
+  getExpiredMatches,
 } from "./store.js";
 import { viewForPlayer } from "./view.js";
 
@@ -149,8 +150,8 @@ function room(matchId: string) {
   return `match:${matchId}`;
 }
 
-async function emitState(matchId: string) {
-  const record = await getMatch(matchId);
+async function emitState(matchId: string, existingRecord?: MatchRecord) {
+  const record = existingRecord || (await getMatch(matchId));
   if (!record) return;
 
   // Primary: Emit to specifically bound socket IDs
@@ -274,11 +275,15 @@ io.on("connection", (socket) => {
 const TURN_TIMEOUT_MS = 15000;
 setInterval(async () => {
   const now = Date.now();
-  const activeIds = await listActiveMatchIds();
+  // PERFORMANCE FIX: Only fetch matches that are actually expired
+  const expiredIds = await getExpiredMatches(now);
   
-  for (const matchId of activeIds) {
+  for (const matchId of expiredIds) {
     const record = await getMatch(matchId);
-    if (!record) continue;
+    if (!record) {
+      await clearWaitingMatch(matchId); // Cleanup index if record missing
+      continue;
+    }
     const { match } = record;
 
     // 1. Ready Timeout check
@@ -289,32 +294,31 @@ setInterval(async () => {
         match.readyCountdownExpiresAt = null;
         io.to(room(matchId)).emit("match:error", { message: "Match terminated: One or more players failed to ready up." });
         await updateMatchState(match); 
-        await emitState(matchId);
+        await emitState(matchId, record);
         continue;
       }
     }
 
     // 2. Turn Timeout check
-    if (match.status !== "IN_PROGRESS" || !match.round || match.round.ended) continue;
-
-    if (now - match.round.turnStartedAt > TURN_TIMEOUT_MS) {
+    if (match.status === "IN_PROGRESS" && match.round && !match.round.ended) {
       const activePlayerId = match.round.activePlayerId;
       console.log(`[Timer] Timeout for match ${matchId} (active: ${activePlayerId})`);
       try {
         const events = commandDraw(match, activePlayerId);
         for (const ev of events) io.to(room(matchId)).emit("match:event", ev);
         await maybeAdvanceAfterRound(record);
-        await emitState(matchId);
+        await emitState(matchId, record);
       } catch (e) {
         try {
           const events = commandStand(match, activePlayerId);
           for (const ev of events) io.to(room(matchId)).emit("match:event", ev);
           await maybeAdvanceAfterRound(record);
-          await emitState(matchId);
+          await emitState(matchId, record);
         } catch (e2) {
+          // If all actions fail, just bump the timer to avoid infinite loop
           match.round.turnStartedAt = now;
           await updateMatchState(match);
-          await emitState(matchId);
+          await emitState(matchId, record);
         }
       }
     }

@@ -18,6 +18,8 @@ const MATCH_KEY = (id: string) => `match:${id}`;
 const SOCKETS_KEY = (id: string) => `sockets:${id}`;
 const WAITING_MATCHES_SET = "matches:waiting";
 const ACTIVE_MATCHES_SET = "matches:active";
+const TIMEOUTS_ZSET = "matches:timeouts";
+
 
 export type MatchRecord = {
   match: MatchState;
@@ -49,17 +51,34 @@ async function saveRecord(record: MatchRecord): Promise<void> {
   } else {
     multi.srem(ACTIVE_MATCHES_SET, matchId);
     multi.srem(WAITING_MATCHES_SET, matchId);
+    multi.zrem(TIMEOUTS_ZSET, matchId);
     // Optional: add TTL for finished matches
     multi.expire(MATCH_KEY(matchId), 3600); 
     multi.expire(SOCKETS_KEY(matchId), 3600);
   }
 
+  // Update timeout index for active matches
+  if (match.status === "IN_PROGRESS" && match.round && !match.round.ended) {
+    // 15s timeout + 500ms buffer
+    multi.zadd(TIMEOUTS_ZSET, match.round.turnStartedAt + 15500, matchId);
+  } else if (match.status === "WAITING" && match.readyCountdownExpiresAt) {
+    multi.zadd(TIMEOUTS_ZSET, match.readyCountdownExpiresAt + 500, matchId);
+  } else {
+    multi.zrem(TIMEOUTS_ZSET, matchId);
+  }
+
   await multi.exec();
 }
+
 
 export async function listActiveMatchIds(): Promise<string[]> {
   return await redis.smembers(ACTIVE_MATCHES_SET);
 }
+
+export async function getExpiredMatches(now: number): Promise<string[]> {
+  return await redis.zrangebyscore(TIMEOUTS_ZSET, 0, now);
+}
+
 
 export async function findWaitingMatchId(): Promise<string | null> {
   const id = await redis.srandmember(WAITING_MATCHES_SET);
