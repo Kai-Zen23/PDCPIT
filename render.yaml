@@ -24,9 +24,10 @@ services:
           name: cardgame-redis
           property: connectionString
 
-- type: redis
-  name: cardgame-redis
-  ipAllowList: [] # Secure: Only allow internal traffic
-  plan: free
+  - type: redis
+    name: cardgame-redis
+    ipAllowList: [] # Secure: Only allow internal traffic
+    plan: free
+
 
 

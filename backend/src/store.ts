@@ -4,7 +4,14 @@ import type { MatchState } from "./types.js";
 import { addSecondPlayer, createMatch, startMatch } from "./engine.js";
 
 const REDIS_URL = process.env.REDIS_URL || "redis://localhost:6379";
-const redis = new Redis(REDIS_URL);
+const redis = new Redis(REDIS_URL, {
+  maxRetriesPerRequest: null,
+});
+
+redis.on("error", (err) => {
+  console.error("[Redis Error]", err);
+});
+
 
 // Key Prefixes
 const MATCH_KEY = (id: string) => `match:${id}`;
