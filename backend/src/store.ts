@@ -62,8 +62,25 @@ export async function listActiveMatchIds(): Promise<string[]> {
 }
 
 export async function findWaitingMatchId(): Promise<string | null> {
-  return await redis.srandmember(WAITING_MATCHES_SET);
+  const id = await redis.srandmember(WAITING_MATCHES_SET);
+  if (!id) return null;
+  // Verify match actually exists to avoid "ghost" matches
+  const exists = await redis.exists(MATCH_KEY(id));
+  if (!exists) {
+    await redis.srem(WAITING_MATCHES_SET, id);
+    return findWaitingMatchId(); // recursion to find a valid one
+  }
+  return id;
 }
+
+export async function getQueueCount(): Promise<number> {
+  return await redis.scard(WAITING_MATCHES_SET);
+}
+
+export async function clearWaitingMatch(matchId: string): Promise<void> {
+  await redis.srem(WAITING_MATCHES_SET, matchId);
+}
+
 
 export function newIds(): { matchId: string; playerId: string } {
   return { matchId: nanoid(8).toUpperCase(), playerId: nanoid(10) };

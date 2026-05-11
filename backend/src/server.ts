@@ -57,6 +57,16 @@ app.use(
 
 app.get("/health", (_req, res) => res.json({ ok: true }));
 
+app.get("/api/matchmaking/status", async (_req, res) => {
+  try {
+    const count = await getQueueCount();
+    const active = await listActiveMatchIds();
+    res.json({ waitingCount: count, activeCount: active.length });
+  } catch (e) {
+    res.status(500).json({ error: "Failed to fetch status" });
+  }
+});
+
 // findWaitingMatchId is now moved to store.ts for better Redis efficiency
 
 app.post("/api/matches", async (req, res) => {
@@ -70,26 +80,27 @@ app.post("/api/matchmaking/enqueue", async (req, res) => {
   const parsed = createMatchSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
   const playerName = parsed.data.playerName;
-
   try {
-    // Pair with any currently waiting 1-player match; otherwise create a new one.
+    console.log(`[Matchmaking] Enqueue request from: ${playerName}`);
     const waitingMatchId = await findWaitingMatchId();
     if (waitingMatchId) {
       try {
+        console.log(`[Matchmaking] Attempting to join existing match: ${waitingMatchId}`);
         const { playerId } = await joinExistingMatch(waitingMatchId, playerName);
-        // NOTIFY: Explicitly broadcast that the match is now full/ready
         io.to(room(waitingMatchId)).emit("match:event", { type: "MATCH:STARTED", matchId: waitingMatchId });
         await emitState(waitingMatchId);
+        console.log(`[Matchmaking] Successfully joined ${waitingMatchId} as ${playerId}`);
         return res.json({ matchId: waitingMatchId, playerId, role: "JOINED" as const });
       } catch (e) {
-        console.warn(`[Matchmaking] Race condition: Failed to join ${waitingMatchId}. Falling back to creation.`);
-        // If someone else snatched the match, fall through to creation
+        console.warn(`[Matchmaking] Race condition/Failure: Failed to join ${waitingMatchId}. Falling back.`);
       }
     }
 
     const created = await createNewMatch(playerName);
+    console.log(`[Matchmaking] Created new match: ${created.matchId} for ${created.playerId}`);
     return res.json({ matchId: created.matchId, playerId: created.playerId, role: "CREATED" as const });
   } catch (e) {
+    console.error(`[Matchmaking] Fatal error:`, e);
     return res.status(400).json({ error: e instanceof Error ? e.message : "Matchmaking failed" });
   }
 });
@@ -241,11 +252,18 @@ io.on("connection", (socket) => {
   });
 
   socket.on("disconnect", async () => {
-    // Tagged sockets make this faster
     const mId = (socket as any).matchId;
     const pId = (socket as any).playerId;
     if (mId && pId) {
+      console.log(`[Socket] Player ${pId} disconnected from match ${mId}`);
       await unbindSocket(mId, pId, socket.id);
+      
+      // GHOST CLEANUP: If the match was still WAITING with only 1 player, remove it from queue
+      const record = await getMatch(mId);
+      if (record && record.match.status === "WAITING" && record.match.playerOrder.length === 1) {
+        console.log(`[Matchmaking] Cleaning up ghost match ${mId} (creator disconnected)`);
+        await clearWaitingMatch(mId);
+      }
     }
   });
 });
