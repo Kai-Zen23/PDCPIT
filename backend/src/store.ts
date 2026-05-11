@@ -81,16 +81,24 @@ export async function getExpiredMatches(now: number): Promise<string[]> {
 
 
 export async function findWaitingMatchId(): Promise<string | null> {
-  const id = await redis.srandmember(WAITING_MATCHES_SET);
-  if (!id) return null;
-  // Verify match actually exists to avoid "ghost" matches
-  const exists = await redis.exists(MATCH_KEY(id));
-  if (!exists) {
+  // Safe loop instead of recursion to prevent stack overflow
+  for (let attempts = 0; attempts < 10; attempts++) {
+    const id = await redis.srandmember(WAITING_MATCHES_SET);
+    if (!id) return null;
+
+    const record = await getMatch(id);
+    if (record && record.match.status === "WAITING" && record.match.playerOrder.length === 1) {
+      return id;
+    }
+
+    // If we get here, the match ID was invalid/stale
+    console.log(`[Queue] Purging invalid match ID: ${id}`);
     await redis.srem(WAITING_MATCHES_SET, id);
-    return findWaitingMatchId(); // recursion to find a valid one
   }
-  return id;
+  return null;
 }
+
+
 
 export async function getQueueCount(): Promise<number> {
   return await redis.scard(WAITING_MATCHES_SET);
@@ -135,6 +143,7 @@ export async function joinExistingMatch(
 ): Promise<{ playerId: string; record: MatchRecord }> {
   const record = await getMatch(matchId);
   if (!record) throw new Error("Match not found.");
+  if (record.match.status !== "WAITING") throw new Error("Match already started or finished.");
   if (record.match.playerOrder.length >= 2) throw new Error("Match is full.");
   
   const playerId = nanoid(10);

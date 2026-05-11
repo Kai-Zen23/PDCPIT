@@ -152,9 +152,15 @@ const io = new Server<ClientToServerEvents, ServerToClientEvents>(server, {
 
 // REDIS ADAPTER for multi-server synchronization
 const REDIS_URL = process.env.REDIS_URL || "redis://localhost:6379";
-const pubClient = new Redis(REDIS_URL);
+const pubClient = new Redis(REDIS_URL, { maxRetriesPerRequest: null });
 const subClient = pubClient.duplicate();
+
+// Defensive error handling for adapter clients
+pubClient.on("error", (err) => console.error("[Redis Pub Error]", err));
+subClient.on("error", (err) => console.error("[Redis Sub Error]", err));
+
 io.adapter(createAdapter(pubClient, subClient));
+
 
 function room(matchId: string) {
   return `match:${matchId}`;
