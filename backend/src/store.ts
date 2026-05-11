@@ -57,12 +57,13 @@ export async function saveRecord(record: MatchRecord): Promise<void> {
     multi.expire(SOCKETS_KEY(matchId), 3600);
   }
 
-  // Update timeout index for active matches
-  if (match.status === "IN_PROGRESS" && match.round && !match.round.ended) {
-    // 15s timeout + 500ms buffer
-    multi.zadd(TIMEOUTS_ZSET, match.round.turnStartedAt + 15500, matchId);
-  } else if (match.status === "WAITING" && match.readyCountdownExpiresAt) {
-    multi.zadd(TIMEOUTS_ZSET, match.readyCountdownExpiresAt + 500, matchId);
+  // We index BOTH turn timeouts and ready-up timeouts
+  const timeout = (match.status === "IN_PROGRESS" && match.round?.turnStartedAt) 
+    ? (match.round.turnStartedAt + 15500) 
+    : (match.status === "WAITING" ? match.readyCountdownExpiresAt : null);
+
+  if (timeout) {
+    multi.zadd(TIMEOUTS_ZSET, timeout, matchId);
   } else {
     multi.zrem(TIMEOUTS_ZSET, matchId);
   }

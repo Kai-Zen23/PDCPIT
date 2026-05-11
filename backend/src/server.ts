@@ -293,19 +293,23 @@ setInterval(async () => {
     const { match } = record;
 
     // 1. Ready Timeout check
+    // Handle Ready-up timeouts
     if (match.status === "WAITING" && match.readyCountdownExpiresAt && now > match.readyCountdownExpiresAt) {
       const bothReady = Object.values(match.readyStatus).every(Boolean);
-      if (!bothReady) {
+      if (bothReady) {
+        const events = startMatch(match);
+        for (const ev of events) io.to(room(matchId)).emit("match:event", ev);
+      } else {
         match.status = "FINISHED";
         match.readyCountdownExpiresAt = null;
-        io.to(room(matchId)).emit("match:error", { message: "Match terminated: One or more players failed to ready up." });
-        await updateMatchState(match); 
-        await emitState(matchId, record);
-        continue;
+        io.to(room(matchId)).emit("match:error", { message: "Match cancelled: Not all players readied." });
       }
+      await saveRecord(record);
+      await emitState(matchId, record);
+      continue;
     }
 
-    // 2. Turn Timeout check
+    // Handle Round turn timeouts
     if (match.status === "IN_PROGRESS" && match.round && !match.round.ended) {
       const activePlayerId = match.round.activePlayerId;
       console.log(`[Timer] Timeout for match ${matchId} (active: ${activePlayerId})`);
