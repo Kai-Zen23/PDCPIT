@@ -12,8 +12,10 @@ import {
   createNewMatch,
   getMatch,
   joinExistingMatch,
-  listMatches,
+  findWaitingMatchId,
+  listActiveMatchIds,
   maybeAdvanceAfterRound,
+  updateMatchState,
   unbindSocket,
 } from "./store.js";
 import { viewForPlayer } from "./view.js";
@@ -198,7 +200,7 @@ io.on("connection", (socket) => {
     }
 
     const { matchId, playerId, commandId, type, payload } = parsed.data;
-    const record = getMatch(matchId);
+    const record = await getMatch(matchId);
     if (!record) {
       socket.emit("match:error", { commandId, message: "Match not found." });
       return;
