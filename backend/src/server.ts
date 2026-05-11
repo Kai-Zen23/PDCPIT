@@ -9,7 +9,7 @@ import { z } from "zod";
 
 import type { ClientToServerEvents, ServerToClientEvents } from "./types.js";
 import { createMatchSchema, joinMatchSchema, matchCommandSchema, powerUpPayloadSchema, type MatchEvent } from "./types.js";
-import { commandDraw, commandPowerUp, commandStand, commandReady, startNextRound } from "./engine.js";
+import { commandDraw, commandPowerUp, commandStand, commandReady, startNextRound, startMatch } from "./engine.js";
 import {
   bindSocket,
   createNewMatch,
@@ -293,17 +293,17 @@ setInterval(async () => {
     const { match } = record;
 
     // 1. Ready Timeout check
-    // Handle Ready-up timeouts
+    // Handle Ready-up timeouts (Strict deadline)
     if (match.status === "WAITING" && match.readyCountdownExpiresAt && now > match.readyCountdownExpiresAt) {
-      const bothReady = Object.values(match.readyStatus).every(Boolean);
-      if (bothReady) {
-        const events = startMatch(match);
-        for (const ev of events) io.to(room(matchId)).emit("match:event", ev);
-      } else {
-        match.status = "FINISHED";
-        match.readyCountdownExpiresAt = null;
-        io.to(room(matchId)).emit("match:error", { message: "Match cancelled: Not all players readied." });
-      }
+      console.log(`[Timer] Ready-up timeout for match ${matchId}. Terminating.`);
+      match.status = "FINISHED";
+      match.winnerPlayerId = null; // No winner
+      match.readyCountdownExpiresAt = null;
+      
+      io.to(room(matchId)).emit("match:error", { 
+        message: "Neural sync failed: Authentication window expired. Returning to hub." 
+      });
+
       await saveRecord(record);
       await emitState(matchId, record);
       continue;
