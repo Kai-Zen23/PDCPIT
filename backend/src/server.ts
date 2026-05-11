@@ -24,6 +24,7 @@ import {
   clearWaitingMatch,
   getExpiredMatches,
   MatchRecord,
+  saveRecord,
 } from "./store.js";
 import { viewForPlayer } from "./view.js";
 
