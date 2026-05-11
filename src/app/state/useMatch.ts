@@ -65,7 +65,7 @@ export function useMatchConnection() {
     };
   }, [session?.matchId, session?.playerId]);
 
-  function sendCommand(type: "DRAW" | "STAND") {
+  function sendCommand(type: "DRAW" | "STAND" | "READY" | "NEXT_ROUND") {
     if (!session || !globalSocket) return;
     setError(null);
     globalSocket.emit("round:command", {

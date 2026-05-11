@@ -12,7 +12,7 @@ export function NameEntryMatchmaking() {
   const navigate = useNavigate();
   const [playerName, setPlayerName] = useState("");
   const [matchState, setMatchState] = useState<MatchState>("name-entry");
-  const [playersInQueue] = useState(Math.floor(Math.random() * 50) + 10);
+  const [playersInQueue] = useState(0); // This will be updated by polling or set to 0 if unused
   const [status, setStatus] = useState<string>("");
   const [loading, setLoading] = useState(false);
   const transitionedRef = useRef(false);
@@ -26,7 +26,7 @@ export function NameEntryMatchmaking() {
     if (!state) return;
 
     // When opponent exists, transition to found/connecting then go to game.
-    if (state.status === "IN_PROGRESS" && state.opponent && !transitionedRef.current) {
+    if (state.opponent && !transitionedRef.current) {
       transitionedRef.current = true;
       setMatchState("found");
       foundTimerRef.current = window.setTimeout(() => setMatchState("connecting"), 900);
@@ -43,7 +43,7 @@ export function NameEntryMatchmaking() {
     const interval = setInterval(async () => {
       try {
         const polledState = await apiGetMatchState(session.matchId, session.playerId);
-        if (polledState.status === "IN_PROGRESS" && polledState.opponent && !transitionedRef.current) {
+        if (polledState.opponent && !transitionedRef.current) {
           // Polling found the match! The socket might have missed it.
           // Since useMatchConnection is also running, it will eventually sync,
           // but we can trigger the transition here immediately.
