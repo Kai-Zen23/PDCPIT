@@ -248,10 +248,13 @@ io.on("connection", (socket) => {
       }
 
       for (const ev of events) io.to(room(matchId)).emit("match:event", ev);
-      await updateMatchState(record.match);
+      
+      // OPTIMIZATION: Save the record we already have and broadcast it immediately
+      await saveRecord(record); 
       await maybeAdvanceAfterRound(record);
-      await emitState(matchId);
+      await emitState(matchId, record);
     } catch (e) {
+      console.error(`[Command Error] ${type}:`, e);
       socket.emit("match:error", { commandId, message: e instanceof Error ? e.message : "Command failed." });
     }
   });
