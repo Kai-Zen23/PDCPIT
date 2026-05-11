@@ -15,7 +15,9 @@
     "ioredis": "^5.10.1",
     "nanoid": "^5.1.5",
     "socket.io": "^4.8.1",
+    "@socket.io/redis-adapter": "^8.3.0",
     "zod": "^4.0.5"
+
   },
   "devDependencies": {
     "@types/cors": "^2.8.18",

@@ -2,7 +2,10 @@ import express from "express";
 import http from "http";
 import cors from "cors";
 import { Server } from "socket.io";
+import { createAdapter } from "@socket.io/redis-adapter";
+import { Redis } from "ioredis";
 import { z } from "zod";
+
 
 import type { ClientToServerEvents, ServerToClientEvents } from "./types.js";
 import { createMatchSchema, joinMatchSchema, matchCommandSchema, powerUpPayloadSchema, type MatchEvent } from "./types.js";
@@ -147,42 +150,31 @@ const io = new Server<ClientToServerEvents, ServerToClientEvents>(server, {
   },
 });
 
+// REDIS ADAPTER for multi-server synchronization
+const REDIS_URL = process.env.REDIS_URL || "redis://localhost:6379";
+const pubClient = new Redis(REDIS_URL);
+const subClient = pubClient.duplicate();
+io.adapter(createAdapter(pubClient, subClient));
+
 function room(matchId: string) {
   return `match:${matchId}`;
+}
+
+function playerRoom(playerId: string) {
+  return `user:${playerId}`;
 }
 
 async function emitState(matchId: string, existingRecord?: MatchRecord) {
   const record = existingRecord || (await getMatch(matchId));
   if (!record) return;
 
-  // Primary: Emit to specifically bound socket IDs
+  // Optimized: Broadcast to private player rooms. 
+  // This works across multiple server instances via the Redis Adapter.
   for (const playerId of record.match.playerOrder) {
-    const socketId = record.socketsByPlayer.get(playerId);
-    if (socketId) {
-      const s = io.sockets.sockets.get(socketId);
-      if (s) {
-        try {
-          s.emit("match:state", viewForPlayer(record.match, playerId));
-          continue; // Successfully sent to primary socket
-        } catch (e) { /* ignore */ }
-      }
-    }
-
-    // Fallback: If primary socket is gone, find any socket in the room with this pId
-    const roomName = room(matchId);
-    const roomSockets = io.sockets.adapter.rooms.get(roomName);
-    if (roomSockets) {
-      for (const sId of roomSockets) {
-        const s = io.sockets.sockets.get(sId);
-        if (s && (s as any).playerId === playerId) {
-          try {
-            s.emit("match:state", viewForPlayer(record.match, playerId));
-          } catch { /* ignore */ }
-        }
-      }
-    }
+    io.to(playerRoom(playerId)).emit("match:state", viewForPlayer(record.match, playerId));
   }
 }
+
 
 io.on("connection", (socket) => {
   socket.on("match:join", async ({ matchId, playerId }) => {
@@ -201,7 +193,9 @@ io.on("connection", (socket) => {
     (socket as any).matchId = matchId;
 
     socket.join(room(matchId));
+    socket.join(playerRoom(playerId)); // Join private room for cross-server emits
     await bindSocket(matchId, playerId, socket.id);
+
     
     // Send immediate state
     socket.emit("match:state", viewForPlayer(record.match, playerId));
