@@ -17,6 +17,8 @@ import {
   maybeAdvanceAfterRound,
   updateMatchState,
   unbindSocket,
+  getQueueCount,
+  clearWaitingMatch,
 } from "./store.js";
 import { viewForPlayer } from "./view.js";
 
