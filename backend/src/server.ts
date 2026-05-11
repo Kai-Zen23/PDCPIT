@@ -6,7 +6,7 @@ import { z } from "zod";
 
 import type { ClientToServerEvents, ServerToClientEvents } from "./types.js";
 import { createMatchSchema, joinMatchSchema, matchCommandSchema, powerUpPayloadSchema, type MatchEvent } from "./types.js";
-import { commandDraw, commandPowerUp, commandStand } from "./engine.js";
+import { commandDraw, commandPowerUp, commandStand, commandReady, startNextRound } from "./engine.js";
 import {
   bindSocket,
   createNewMatch,
@@ -55,62 +55,55 @@ app.use(
 
 app.get("/health", (_req, res) => res.json({ ok: true }));
 
-function findWaitingMatchId(): string | null {
-  for (const [matchId, record] of listMatches()) {
-    if (record.match.status === "WAITING" && record.match.playerOrder.length === 1) {
-      return matchId;
-    }
-  }
-  return null;
-}
+// findWaitingMatchId is now moved to store.ts for better Redis efficiency
 
-app.post("/api/matches", (req, res) => {
+app.post("/api/matches", async (req, res) => {
   const parsed = createMatchSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
-  const { matchId, playerId } = createNewMatch(parsed.data.playerName);
+  const { matchId, playerId } = await createNewMatch(parsed.data.playerName);
   return res.json({ matchId, playerId });
 });
 
-app.post("/api/matchmaking/enqueue", (req, res) => {
+app.post("/api/matchmaking/enqueue", async (req, res) => {
   const parsed = createMatchSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
   const playerName = parsed.data.playerName;
 
   try {
     // Pair with any currently waiting 1-player match; otherwise create a new one.
-    const waitingMatchId = findWaitingMatchId();
+    const waitingMatchId = await findWaitingMatchId();
     if (waitingMatchId) {
-      const { playerId } = joinExistingMatch(waitingMatchId, playerName);
+      const { playerId } = await joinExistingMatch(waitingMatchId, playerName);
       // KEY FIX: Immediately push the updated IN_PROGRESS state to Player 1's
       // already-connected socket. Without this, Player 1 is stuck on "Searching"
       // until Player 2's WebSocket happens to connect — a race condition.
-      emitState(waitingMatchId);
+      await emitState(waitingMatchId);
       return res.json({ matchId: waitingMatchId, playerId, role: "JOINED" as const });
     }
 
-    const created = createNewMatch(playerName);
+    const created = await createNewMatch(playerName);
     return res.json({ matchId: created.matchId, playerId: created.playerId, role: "CREATED" as const });
   } catch (e) {
     return res.status(400).json({ error: e instanceof Error ? e.message : "Matchmaking failed" });
   }
 });
 
-app.post("/api/matches/:matchId/join", (req, res) => {
+app.post("/api/matches/:matchId/join", async (req, res) => {
   const matchId = String(req.params.matchId ?? "").trim();
   const parsed = joinMatchSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
   try {
-    const { playerId } = joinExistingMatch(matchId, parsed.data.playerName);
+    const { playerId } = await joinExistingMatch(matchId, parsed.data.playerName);
     return res.json({ matchId, playerId });
   } catch (e) {
     return res.status(400).json({ error: e instanceof Error ? e.message : "Join failed" });
   }
 });
 
-app.get("/api/matches/:matchId/state/:playerId", (req, res) => {
+app.get("/api/matches/:matchId/state/:playerId", async (req, res) => {
   const matchId = String(req.params.matchId ?? "").trim();
   const playerId = String(req.params.playerId ?? "").trim();
-  const record = getMatch(matchId);
+  const record = await getMatch(matchId);
   if (!record) return res.status(404).json({ error: "Match not found" });
   try {
     return res.json(viewForPlayer(record.match, playerId));
@@ -137,8 +130,8 @@ function room(matchId: string) {
   return `match:${matchId}`;
 }
 
-function emitState(matchId: string) {
-  const record = getMatch(matchId);
+async function emitState(matchId: string) {
+  const record = await getMatch(matchId);
   if (!record) return;
 
   // Primary: Emit to specifically bound socket IDs
@@ -171,8 +164,8 @@ function emitState(matchId: string) {
 }
 
 io.on("connection", (socket) => {
-  socket.on("match:join", ({ matchId, playerId }) => {
-    const record = getMatch(matchId);
+  socket.on("match:join", async ({ matchId, playerId }) => {
+    const record = await getMatch(matchId);
     if (!record) {
       socket.emit("match:error", { message: "Match not found." });
       return;
@@ -187,13 +180,13 @@ io.on("connection", (socket) => {
     (socket as any).matchId = matchId;
 
     socket.join(room(matchId));
-    bindSocket(matchId, playerId, socket.id);
+    await bindSocket(matchId, playerId, socket.id);
     
     // Send immediate state
     socket.emit("match:state", viewForPlayer(record.match, playerId));
     
     // Sync other players
-    emitState(matchId);
+    await emitState(matchId);
     console.log(`[Socket] Player ${playerId} joined match ${matchId}`);
   });
 
@@ -224,12 +217,9 @@ io.on("connection", (socket) => {
       if (type === "DRAW") events = commandDraw(record.match, playerId);
       else if (type === "STAND") events = commandStand(record.match, playerId);
       else if (type === "READY") {
-        const { commandReady } = await import("./engine.js");
         events = commandReady(record.match, playerId);
       } else if (type === "NEXT_ROUND") {
-        const { startNextRound } = await import("./engine.js");
-        startNextRound(record.match);
-        events = []; // startNextRound doesn't return events, but state update will notify players
+        events = startNextRound(record.match);
       } else {
         const pParsed = powerUpPayloadSchema.safeParse(payload);
         if (!pParsed.success) throw new Error("Invalid power-up payload.");
@@ -237,40 +227,43 @@ io.on("connection", (socket) => {
       }
 
       for (const ev of events) io.to(room(matchId)).emit("match:event", ev);
-      maybeAdvanceAfterRound(record);
-      emitState(matchId);
+      await maybeAdvanceAfterRound(record);
+      await emitState(matchId);
     } catch (e) {
       socket.emit("match:error", { commandId, message: e instanceof Error ? e.message : "Command failed." });
     }
   });
 
-  socket.on("disconnect", () => {
-    // Best-effort cleanup (scan all matches; ok for MVP).
-    for (const [matchId, record] of listMatches()) {
-      for (const [playerId, sid] of record.socketsByPlayer.entries()) {
-        if (sid === socket.id) unbindSocket(matchId, playerId, socket.id);
-      }
+  socket.on("disconnect", async () => {
+    // Tagged sockets make this faster
+    const mId = (socket as any).matchId;
+    const pId = (socket as any).playerId;
+    if (mId && pId) {
+      await unbindSocket(mId, pId, socket.id);
     }
   });
 });
 
 // ---- Turn Timer Logic (15s timeout)
 const TURN_TIMEOUT_MS = 15000;
-setInterval(() => {
+setInterval(async () => {
   const now = Date.now();
-  for (const [matchId, record] of listMatches()) {
+  const activeIds = await listActiveMatchIds();
+  
+  for (const matchId of activeIds) {
+    const record = await getMatch(matchId);
+    if (!record) continue;
     const { match } = record;
-    const now = Date.now();
 
     // 1. Ready Timeout check
     if (match.status === "WAITING" && match.readyCountdownExpiresAt && now > match.readyCountdownExpiresAt) {
       const bothReady = Object.values(match.readyStatus).every(Boolean);
       if (!bothReady) {
-        // Termination condition met
-        match.status = "FINISHED"; // Mark as finished/cancelled
+        match.status = "FINISHED";
         match.readyCountdownExpiresAt = null;
         io.to(room(matchId)).emit("match:error", { message: "Match terminated: One or more players failed to ready up." });
-        emitState(matchId);
+        await updateMatchState(match); // explicitly save the FINISHED state
+        await emitState(matchId);
         continue;
       }
     }
@@ -284,19 +277,18 @@ setInterval(() => {
       try {
         const events = commandDraw(match, activePlayerId);
         for (const ev of events) io.to(room(matchId)).emit("match:event", ev);
-        maybeAdvanceAfterRound(record);
-        emitState(matchId);
+        await maybeAdvanceAfterRound(record);
+        await emitState(matchId);
       } catch (e) {
-        // If commandDraw fails (e.g. deck empty), try standing instead to avoid hang
         try {
           const events = commandStand(match, activePlayerId);
           for (const ev of events) io.to(room(matchId)).emit("match:event", ev);
-          maybeAdvanceAfterRound(record);
-          emitState(matchId);
+          await maybeAdvanceAfterRound(record);
+          await emitState(matchId);
         } catch (e2) {
-          // Absolute fallback: just reset the timer to prevent infinite loop
           match.round.turnStartedAt = now;
-          emitState(matchId);
+          await updateMatchState(match);
+          await emitState(matchId);
         }
       }
     }

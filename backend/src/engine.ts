@@ -422,35 +422,15 @@ export function commandPowerUp(
     }
     case "target_shift_19": {
       round.target = 19;
-      // Don't re-evaluate bust conditions on a target shift — only card draws should
-      // trigger a bust. Mark the power-up used, pass turn, and skip evaluation.
-      ps.powerUpUsedThisRound = true;
-      me.powerUps.splice(idx, 1);
-      ps.turnsTaken += 1;
-      events.push({ type: "POWER_UP:USED", matchId: match.id, playerId, powerUp: powerUpType });
-      maybeForceStand(round, playerId, events, match.id);
-      if (!round.ended) passTurn(round, match.id, events);
-      return events;
+      break;
     }
     case "target_shift_21": {
       round.target = 21;
-      ps.powerUpUsedThisRound = true;
-      me.powerUps.splice(idx, 1);
-      ps.turnsTaken += 1;
-      events.push({ type: "POWER_UP:USED", matchId: match.id, playerId, powerUp: powerUpType });
-      maybeForceStand(round, playerId, events, match.id);
-      if (!round.ended) passTurn(round, match.id, events);
-      return events;
+      break;
     }
     case "target_shift_28": {
       round.target = 28;
-      ps.powerUpUsedThisRound = true;
-      me.powerUps.splice(idx, 1);
-      ps.turnsTaken += 1;
-      events.push({ type: "POWER_UP:USED", matchId: match.id, playerId, powerUp: powerUpType });
-      maybeForceStand(round, playerId, events, match.id);
-      if (!round.ended) passTurn(round, match.id, events);
-      return events;
+      break;
     }
     case "shield": {
       ps.shielded = true;

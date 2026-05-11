@@ -17,4 +17,16 @@ services:
     startCommand: npm run start
     healthCheckPath: /health
     autoDeploy: true
+    envVars:
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: cardgame-redis
+          property: connectionString
+
+- type: redis
+  name: cardgame-redis
+  ipAllowList: [] # Secure: Only allow internal traffic
+  plan: free
+
 

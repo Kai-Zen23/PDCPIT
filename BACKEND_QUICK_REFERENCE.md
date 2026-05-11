@@ -51,67 +51,19 @@ error                   # Error occurred
 
 ---
 
-## 💾 Data Models (Redis Keys)
+### Match Records (JSON)
+Key: `match:{matchId}`
+Type: `String (JSON)`
+TTL: 3600 seconds (for finished games)
 
-### Session
-```
-Key: session:{sessionId}
-TTL: 3600 seconds (1 hour)
+### Socket Mappings
+Key: `sockets:{matchId}`
+Type: `Hash`
+Fields: `playerId -> socketId`
 
-{
-  "sessionId": "uuid",
-  "playerName": "string",
-  "socketId": "string",
-  "status": "idle|queued|in-game",
-  "gameId": "uuid|null",
-  "createdAt": timestamp,
-  "lastActivity": timestamp
-}
-```
-
-### Game State
-```
-Key: game:{gameId}
-TTL: 7200 seconds (2 hours)
-
-{
-  "gameId": "uuid",
-  "players": {
-    "player1": { ... },
-    "player2": { ... }
-  },
-  "currentTurn": "player1|player2",
-  "targetNumber": 21,
-  "status": "waiting|active|finished",
-  "winner": "player1|player2|draw|null",
-  "actionLog": [...],
-  "createdAt": timestamp,
-  "updatedAt": timestamp
-}
-```
-
-### Player Data (inside Game State)
-```
-{
-  "sessionId": "uuid",
-  "playerName": "string",
-  "socketId": "string",
-  "lives": 3,
-  "cards": [
-    { "id": "uuid", "value": 1-10, "visible": true|false }
-  ],
-  "totalValue": number,
-  "hasStood": boolean,
-  "powerUps": [...]
-}
-```
-
-### Matchmaking Queue
-```
-Key: queue:matchmaking
-Type: List
-
-["sessionId1", "sessionId2", ...]
+### Matchmaking Indices
+Key: `matches:waiting` (Set of match IDs with 1 player)
+Key: `matches:active` (Set of all in-progress match IDs)
 ```
 
 ---

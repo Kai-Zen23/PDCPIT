@@ -12,6 +12,7 @@
   "dependencies": {
     "cors": "^2.8.5",
     "express": "^4.21.2",
+    "ioredis": "^5.10.1",
     "nanoid": "^5.1.5",
     "socket.io": "^4.8.1",
     "zod": "^4.0.5"
@@ -24,4 +25,3 @@
     "typescript": "^5.8.3"
   }
 }
-

@@ -290,14 +290,11 @@ PORT=3000
 NODE_ENV=development
 
 # Redis
-REDIS_HOST=localhost
-REDIS_PORT=6379
+REDIS_URL=redis://localhost:6379
 
 # Game Config
 TARGET_NUMBER=21
 STARTING_LIVES=3
-SESSION_TTL=3600
-GAME_TTL=7200
 ```
 
 ### Frontend (.env)
