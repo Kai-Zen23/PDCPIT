@@ -30,7 +30,7 @@ export type MatchRecord = {
  * Serializes MatchRecord for Redis storage.
  * socketsByPlayer Map is converted to an object for storage in a Redis Hash.
  */
-async function saveRecord(record: MatchRecord): Promise<void> {
+export async function saveRecord(record: MatchRecord): Promise<void> {
   const { match, socketsByPlayer } = record;
   const matchId = match.id;
 
