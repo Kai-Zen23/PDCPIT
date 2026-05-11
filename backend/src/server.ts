@@ -20,6 +20,7 @@ import {
   getQueueCount,
   clearWaitingMatch,
   getExpiredMatches,
+  MatchRecord,
 } from "./store.js";
 import { viewForPlayer } from "./view.js";
 
