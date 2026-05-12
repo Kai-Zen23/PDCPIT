@@ -9,19 +9,20 @@ import {
 } from "lucide-react";
 import { useMatchConnection } from "../state/useMatch";
 import type { BackendPowerUp, MatchEvent } from "../../lib/backend";
+import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "./ui/tooltip";
 
-const POWER_UP_CONFIG: Record<BackendPowerUp, { icon: any, label: string }> = {
-  card_destroyer: { icon: Trash2, label: "Card Destroyer" },
-  rightmost_removal: { icon: Scissors, label: "Opp Removal" },
-  self_cleanse: { icon: Eraser, label: "Self Cleanse" },
-  double_purge: { icon: RefreshCw, label: "Double Purge" },
-  target_shift_19: { icon: Target, label: "Target 19" },
-  target_shift_21: { icon: Target, label: "Target 21" },
-  target_shift_28: { icon: Target, label: "Target 28" },
-  shield: { icon: Shield, label: "Shield" },
-  random_swap: { icon: Repeat, label: "Random Swap" },
-  sudden_risk: { icon: TrendingUp, label: "Sudden Risk" },
-  lucky_replace: { icon: RotateCcw, label: "Lucky Replace" },
+const POWER_UP_CONFIG: Record<BackendPowerUp, { icon: any, label: string, description: string }> = {
+  card_destroyer: { icon: Trash2, label: "Card Destroyer", description: "Target and destroy a card from opponent's hand." },
+  rightmost_removal: { icon: Scissors, label: "Opp Removal", description: "Instantly pop off opponent's newest drawn card." },
+  self_cleanse: { icon: Eraser, label: "Self Cleanse", description: "Discard your most recently drawn card." },
+  double_purge: { icon: RefreshCw, label: "Double Purge", description: "Discard your last two drawn cards." },
+  target_shift_19: { icon: Target, label: "Target 19", description: "Shift the winning round target down to 19." },
+  target_shift_21: { icon: Target, label: "Target 21", description: "Reset the winning round target back to 21." },
+  target_shift_28: { icon: Target, label: "Target 28", description: "Shift the winning round target up to 28." },
+  shield: { icon: Shield, label: "Shield", description: "Gain immunity against next incoming offensive modifier." },
+  random_swap: { icon: Repeat, label: "Random Swap", description: "Swap a random card from your hand with opponent's." },
+  sudden_risk: { icon: TrendingUp, label: "Sudden Risk", description: "Instantly double the value of your newest card." },
+  lucky_replace: { icon: RotateCcw, label: "Lucky Replace", description: "Discard a chosen card and replace it from top of deck." },
 };
 
 export function Gameplay() {
@@ -554,31 +555,42 @@ export function Gameplay() {
                   const needsTargeting = pu === "card_destroyer" || pu === "lucky_replace";
 
                   return (
-                    <motion.button
-                      key={`${pu}-${i}`}
-                      whileHover={{ scale: 1.05 }}
-                      whileTap={{ scale: 0.95 }}
-                      onClick={() => {
-                        if (needsTargeting) {
-                          if (isPending) setPendingPowerUp(null);
-                          else setPendingPowerUp({ type: pu, indexInYourPowerUps: i });
-                        } else {
-                          usePowerUp(pu);
-                        }
-                      }}
-                      disabled={!isYourTurn || round?.you?.powerUpUsedThisRound}
-                      className={`bg-[#121212] border rounded-lg p-3 flex flex-col items-center gap-2 transition-all disabled:opacity-30 disabled:cursor-not-allowed ${
-                        isPending 
-                          ? 'border-[#9D4EDD] bg-[#9D4EDD]/20 animate-pulse' 
-                          : 'border-[#4CC9F0]/40 hover:border-[#4CC9F0] hover:bg-[#4CC9F0]/10'
-                      }`}
-                      style={{ boxShadow: isPending ? '0 0 20px #9D4EDD' : '0 0 15px rgba(76, 201, 240, 0.2)' }}
-                    >
-                      <Icon className={`w-6 h-6 ${isPending ? 'text-[#9D4EDD]' : 'text-[#4CC9F0]'}`} />
-                      <span className={`text-[10px] uppercase text-center ${isPending ? 'text-[#F5F5F5]' : 'text-[#B0B0B0]'}`}>
-                        {isPending ? "SELECT TARGET" : config.label}
-                      </span>
-                    </motion.button>
+                    <TooltipProvider key={`${pu}-${i}`}>
+                      <Tooltip delayDuration={100}>
+                        <TooltipTrigger asChild>
+                          <div className="w-full">
+                            <motion.button
+                              whileHover={{ scale: 1.05 }}
+                              whileTap={{ scale: 0.95 }}
+                              onClick={() => {
+                                if (needsTargeting) {
+                                  if (isPending) setPendingPowerUp(null);
+                                  else setPendingPowerUp({ type: pu, indexInYourPowerUps: i });
+                                } else {
+                                  usePowerUp(pu);
+                                }
+                              }}
+                              disabled={!isYourTurn || round?.you?.powerUpUsedThisRound}
+                              className={`w-full bg-[#121212] border rounded-lg p-3 flex flex-col items-center gap-2 transition-all disabled:opacity-30 disabled:cursor-not-allowed ${
+                                isPending 
+                                  ? 'border-[#9D4EDD] bg-[#9D4EDD]/20 animate-pulse' 
+                                  : 'border-[#4CC9F0]/40 hover:border-[#4CC9F0] hover:bg-[#4CC9F0]/10'
+                              }`}
+                              style={{ boxShadow: isPending ? '0 0 20px #9D4EDD' : '0 0 15px rgba(76, 201, 240, 0.2)' }}
+                            >
+                              <Icon className={`w-6 h-6 ${isPending ? 'text-[#9D4EDD]' : 'text-[#4CC9F0]'}`} />
+                              <span className={`text-[10px] uppercase text-center ${isPending ? 'text-[#F5F5F5]' : 'text-[#B0B0B0]'}`}>
+                                {isPending ? "SELECT TARGET" : config.label}
+                              </span>
+                            </motion.button>
+                          </div>
+                        </TooltipTrigger>
+                        <TooltipContent side="top" sideOffset={10} className="bg-[#121212]/95 backdrop-blur-md border border-[#9D4EDD]/60 p-3 rounded-xl shadow-[0_0_30px_rgba(157,78,221,0.4)] max-w-[200px] text-center z-[200]">
+                          <p className="text-[#4CC9F0] font-orbitron text-[11px] mb-1 tracking-wider">{config.label}</p>
+                          <p className="text-[#B0B0B0] text-[10px] font-sans leading-relaxed">{config.description}</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
                   );
                 })}
                 {you.powerUps.length === 0 && (
