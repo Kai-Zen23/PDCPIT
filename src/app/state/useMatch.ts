@@ -8,6 +8,13 @@ type MatchError = { commandId?: string; message: string };
 
 let globalSocket: BackendSocket | null = null;
 
+export function disconnectGlobalSocket() {
+  if (globalSocket) {
+    globalSocket.disconnect();
+    globalSocket = null;
+  }
+}
+
 export function useMatchConnection() {
   const session = loadSession();
   const [state, setState] = useState<MatchView | null>(null);

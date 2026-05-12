@@ -1,9 +1,17 @@
 import { useNavigate } from "react-router";
 import { motion } from "motion/react";
 import { Sparkles } from "lucide-react";
+import { useEffect } from "react";
+import { clearSession } from "../../lib/session";
+import { disconnectGlobalSocket } from "../state/useMatch";
 
 export function MainMenu() {
   const navigate = useNavigate();
+
+  useEffect(() => {
+    clearSession();
+    disconnectGlobalSocket();
+  }, []);
 
   return (
     <div className="min-h-screen bg-[#121212] relative overflow-hidden" style={{ fontFamily: 'Poppins, sans-serif' }}>

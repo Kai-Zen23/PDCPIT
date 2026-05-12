@@ -23,6 +23,7 @@ export function NameEntryMatchmaking() {
   const { state, error } = useMatchConnection();
 
   useEffect(() => {
+    if (matchState !== "searching") return;
     if (!state) return;
 
     // When opponent exists, transition to found/connecting then go to game.
@@ -32,7 +33,7 @@ export function NameEntryMatchmaking() {
       foundTimerRef.current = window.setTimeout(() => setMatchState("connecting"), 900);
       connectTimerRef.current = window.setTimeout(() => navigate("/match-found"), 1800);
     }
-  }, [navigate, state]);
+  }, [navigate, state, matchState]);
 
   useEffect(() => {
     if (matchState !== "searching") return;
