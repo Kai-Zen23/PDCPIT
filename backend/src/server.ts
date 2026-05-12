@@ -25,6 +25,8 @@ import {
   getExpiredMatches,
   MatchRecord,
   saveRecord,
+  acquireMatchLock,
+  releaseMatchLock,
 } from "./store.js";
 import { viewForPlayer } from "./view.js";
 
@@ -152,6 +154,9 @@ const io = new Server<ClientToServerEvents, ServerToClientEvents>(server, {
     },
     credentials: true,
   },
+  // Resiliency Tuning: Drop disconnected sockets quickly across clustered adapters
+  pingInterval: 10000,
+  pingTimeout: 5000,
 });
 
 // REDIS ADAPTER for multi-server synchronization
@@ -237,6 +242,13 @@ io.on("connection", (socket) => {
 
     // Optional: could also verify socket is in room(matchId), but playerId check is stronger.
 
+    // Concurrency Guard: Ensure events for the same match process in strict sequence per cluster node
+    const lockAcquired = await acquireMatchLock(matchId, 2000);
+    if (!lockAcquired) {
+      socket.emit("match:error", { commandId, message: "Action stream highly active. Concurrency limit protected." });
+      return;
+    }
+
     try {
       let events: MatchEvent[] = [];
       if (type === "DRAW") events = commandDraw(record.match, playerId);
@@ -263,6 +275,8 @@ io.on("connection", (socket) => {
     } catch (e) {
       console.error(`[Command Error] ${type}:`, e);
       socket.emit("match:error", { commandId, message: e instanceof Error ? e.message : "Command failed." });
+    } finally {
+      await releaseMatchLock(matchId);
     }
   });
 
@@ -290,57 +304,66 @@ setInterval(async () => {
   // PERFORMANCE FIX: Only fetch matches that are actually expired
   const expiredIds = await getExpiredMatches(now);
   
-  for (const matchId of expiredIds) {
-    const record = await getMatch(matchId);
-    if (!record) {
-      await clearWaitingMatch(matchId); // Cleanup index if record missing
-      continue;
-    }
-    const { match } = record;
+  // PARALLEL PROCESSING: Evaluate expired timeouts concurrently without blocking main Event Loop ticks
+  await Promise.allSettled(
+    expiredIds.map(async (matchId) => {
+      // DISTRIBUTED MULTI-SERVER GUARD: Guarantee timeout evaluates on exactly one Nginx game server cluster instance
+      const lockAcquired = await acquireMatchLock(matchId, 3000);
+      if (!lockAcquired) return; // Handled by parallel sibling server
 
-    // 1. Ready Timeout check
-    // Handle Ready-up timeouts (Strict deadline)
-    if (match.status === "WAITING" && match.readyCountdownExpiresAt && now > match.readyCountdownExpiresAt) {
-      console.log(`[Timer] Ready-up timeout for match ${matchId}. Terminating.`);
-      match.status = "FINISHED";
-      match.winnerPlayerId = null; // No winner
-      match.readyCountdownExpiresAt = null;
-      
-      io.to(room(matchId)).emit("match:error", { 
-        message: "Neural sync failed: Authentication window expired. Returning to hub." 
-      });
-
-      await saveRecord(record);
-      await emitState(matchId, record);
-      continue;
-    }
-
-    // Handle Round turn timeouts
-    if (match.status === "IN_PROGRESS" && match.round && !match.round.ended) {
-      const activePlayerId = match.round.activePlayerId;
-      console.log(`[Timer] Timeout for match ${matchId} (active: ${activePlayerId})`);
       try {
-        const events = commandDraw(match, activePlayerId);
-        for (const ev of events) io.to(room(matchId)).emit("match:event", ev);
-        await saveRecord(record);
-        await maybeAdvanceAfterRound(record);
-        await emitState(matchId, record);
-      } catch (e) {
-        try {
-          const events = commandStand(match, activePlayerId);
-          for (const ev of events) io.to(room(matchId)).emit("match:event", ev);
-          await saveRecord(record);
-          await maybeAdvanceAfterRound(record);
-          await emitState(matchId, record);
-        } catch (e2) {
-          // If all actions fail, just bump the timer to avoid infinite loop
-          match.round.turnStartedAt = now;
-          await updateMatchState(match);
-          await emitState(matchId, record);
+        const record = await getMatch(matchId);
+        if (!record) {
+          await clearWaitingMatch(matchId); // Cleanup index if record missing
+          return;
         }
+        const { match } = record;
+
+        // 1. Ready Timeout check
+        if (match.status === "WAITING" && match.readyCountdownExpiresAt && now > match.readyCountdownExpiresAt) {
+          console.log(`[Timer] Ready-up timeout for match ${matchId}. Terminating.`);
+          match.status = "FINISHED";
+          match.winnerPlayerId = null; // No winner
+          match.readyCountdownExpiresAt = null;
+          
+          io.to(room(matchId)).emit("match:error", { 
+            message: "Neural sync failed: Authentication window expired. Returning to hub." 
+          });
+
+          await saveRecord(record);
+          await emitState(matchId, record);
+          return;
+        }
+
+        // Handle Round turn timeouts
+        if (match.status === "IN_PROGRESS" && match.round && !match.round.ended) {
+          const activePlayerId = match.round.activePlayerId;
+          console.log(`[Timer] Timeout for match ${matchId} (active: ${activePlayerId})`);
+          try {
+            const events = commandDraw(match, activePlayerId);
+            for (const ev of events) io.to(room(matchId)).emit("match:event", ev);
+            await saveRecord(record);
+            await maybeAdvanceAfterRound(record);
+            await emitState(matchId, record);
+          } catch (e) {
+            try {
+              const events = commandStand(match, activePlayerId);
+              for (const ev of events) io.to(room(matchId)).emit("match:event", ev);
+              await saveRecord(record);
+              await maybeAdvanceAfterRound(record);
+              await emitState(matchId, record);
+            } catch (e2) {
+              match.round.turnStartedAt = now;
+              await updateMatchState(match);
+              await emitState(matchId, record);
+            }
+          }
+        }
+      } finally {
+        await releaseMatchLock(matchId);
       }
-    }
-  }
+    })
+  );
 }, 1000);
 
 server.listen(PORT, () => {
