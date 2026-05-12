@@ -319,12 +319,14 @@ setInterval(async () => {
       try {
         const events = commandDraw(match, activePlayerId);
         for (const ev of events) io.to(room(matchId)).emit("match:event", ev);
+        await saveRecord(record);
         await maybeAdvanceAfterRound(record);
         await emitState(matchId, record);
       } catch (e) {
         try {
           const events = commandStand(match, activePlayerId);
           for (const ev of events) io.to(room(matchId)).emit("match:event", ev);
+          await saveRecord(record);
           await maybeAdvanceAfterRound(record);
           await emitState(matchId, record);
         } catch (e2) {
