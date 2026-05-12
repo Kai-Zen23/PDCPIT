@@ -239,7 +239,10 @@ io.on("connection", (socket) => {
       if (type === "DRAW") events = commandDraw(record.match, playerId);
       else if (type === "STAND") events = commandStand(record.match, playerId);
       else if (type === "READY") {
+        console.log(`[Command Received] READY from player ${playerId} for match ${matchId}`);
         events = commandReady(record.match, playerId);
+        const readiedCount = Object.values(record.match.readyStatus).filter(Boolean).length;
+        console.log(`[Command Processed] READY from player ${playerId}. Total ready: ${readiedCount}`);
       } else if (type === "NEXT_ROUND") {
         events = startNextRound(record.match);
       } else {

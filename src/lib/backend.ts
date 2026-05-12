@@ -64,7 +64,7 @@ export type BackendSocket = Socket<
     "round:command": (data: {
       matchId: string;
       commandId: string;
-      type: "DRAW" | "STAND" | "POWER_UP";
+      type: "DRAW" | "STAND" | "POWER_UP" | "READY" | "NEXT_ROUND";
       payload?: unknown;
     }) => void;
   },
