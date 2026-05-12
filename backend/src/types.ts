@@ -27,6 +27,7 @@ export type CommandType = (typeof COMMAND_TYPES)[number];
 
 export const createMatchSchema = z.object({
   playerName: z.string().trim().min(1).max(20),
+  isPrivate: z.boolean().optional(),
 });
 export type CreateMatchInput = z.infer<typeof createMatchSchema>;
 
@@ -122,6 +123,7 @@ export type MatchState = {
   readyCountdownExpiresAt: number | null;
   round: RoundState | null;
   winnerPlayerId: string | null; // match-level winner
+  isPrivate?: boolean;
 };
 
 // ---- Views (filtered for each player)

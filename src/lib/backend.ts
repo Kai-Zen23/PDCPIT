@@ -82,11 +82,11 @@ export function backendBaseUrl(): string {
   return raw.trim().replace(/\/+$/, "");
 }
 
-export async function apiCreateMatch(playerName: string): Promise<{ matchId: string; playerId: string }> {
+export async function apiCreateMatch(playerName: string, isPrivate: boolean = false): Promise<{ matchId: string; playerId: string }> {
   const res = await fetch(`${backendBaseUrl()}/api/matches`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ playerName }),
+    body: JSON.stringify({ playerName, isPrivate }),
   });
   if (!res.ok) throw new Error(await res.text());
   return await res.json();

@@ -40,7 +40,7 @@ export async function saveRecord(record: MatchRecord): Promise<void> {
   multi.set(MATCH_KEY(matchId), JSON.stringify(match));
 
   // Manage indices
-  if (match.status === "WAITING" && match.playerOrder.length === 1) {
+  if (match.status === "WAITING" && match.playerOrder.length === 1 && !match.isPrivate) {
     multi.sadd(WAITING_MATCHES_SET, matchId);
   } else {
     multi.srem(WAITING_MATCHES_SET, matchId);
@@ -130,9 +130,9 @@ export async function getMatch(matchId: string): Promise<MatchRecord | undefined
   };
 }
 
-export async function createNewMatch(playerName: string): Promise<{ matchId: string; playerId: string; record: MatchRecord }> {
+export async function createNewMatch(playerName: string, isPrivate: boolean = false): Promise<{ matchId: string; playerId: string; record: MatchRecord }> {
   const ids = newIds();
-  const match = createMatch(ids.matchId, ids.playerId, playerName);
+  const match = createMatch(ids.matchId, ids.playerId, playerName, isPrivate);
   const record: MatchRecord = { match, socketsByPlayer: new Map() };
   await saveRecord(record);
   return { ...ids, record };

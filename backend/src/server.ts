@@ -80,7 +80,7 @@ app.get("/api/matchmaking/status", async (_req, res) => {
 app.post("/api/matches", async (req, res) => {
   const parsed = createMatchSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
-  const { matchId, playerId } = await createNewMatch(parsed.data.playerName);
+  const { matchId, playerId } = await createNewMatch(parsed.data.playerName, parsed.data.isPrivate);
   return res.json({ matchId, playerId });
 });
 
@@ -119,6 +119,9 @@ app.post("/api/matches/:matchId/join", async (req, res) => {
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
   try {
     const { playerId } = await joinExistingMatch(matchId, parsed.data.playerName);
+    // Real-time update: broadcast to everyone in the room that the guest joined
+    io.to(room(matchId)).emit("match:event", { type: "MATCH:STARTED", matchId });
+    await emitState(matchId);
     return res.json({ matchId, playerId });
   } catch (e) {
     return res.status(400).json({ error: e instanceof Error ? e.message : "Join failed" });

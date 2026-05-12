@@ -81,7 +81,7 @@ function bothPlayers(match: MatchState): [string, string] {
   return [match.playerOrder[0], match.playerOrder[1]];
 }
 
-export function createMatch(matchId: string, playerId: string, playerName: string): MatchState {
+export function createMatch(matchId: string, playerId: string, playerName: string, isPrivate: boolean = false): MatchState {
   return {
     id: matchId,
     status: "WAITING",
@@ -99,6 +99,7 @@ export function createMatch(matchId: string, playerId: string, playerName: strin
     readyCountdownExpiresAt: null,
     round: null,
     winnerPlayerId: null,
+    isPrivate,
   };
 }
 

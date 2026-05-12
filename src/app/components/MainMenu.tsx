@@ -105,7 +105,7 @@ export function MainMenu() {
           <motion.button
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
-            onClick={() => navigate('/lobby')}
+            onClick={() => navigate('/lobby', { state: { mode: 'create' } })}
             className="relative px-8 py-4 bg-[#1E1E1E] border-2 border-[#9D4EDD]/50 rounded-xl overflow-hidden group"
             style={{
               fontFamily: 'Orbitron, sans-serif',
@@ -119,7 +119,7 @@ export function MainMenu() {
           <motion.button
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
-            onClick={() => navigate('/lobby')}
+            onClick={() => navigate('/lobby', { state: { mode: 'join' } })}
             className="relative px-8 py-4 bg-[#1E1E1E] border-2 border-[#4CC9F0]/50 rounded-xl overflow-hidden group"
             style={{
               fontFamily: 'Orbitron, sans-serif',
