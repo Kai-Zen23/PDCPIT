@@ -12,14 +12,12 @@ redis.on("error", (err) => {
   console.error("[Redis Error]", err);
 });
 
-
 // Key Prefixes
 const MATCH_KEY = (id: string) => `match:${id}`;
 const SOCKETS_KEY = (id: string) => `sockets:${id}`;
 const WAITING_MATCHES_SET = "matches:waiting";
 const ACTIVE_MATCHES_SET = "matches:active";
 const TIMEOUTS_ZSET = "matches:timeouts";
-
 
 export type MatchRecord = {
   match: MatchState;
@@ -73,7 +71,6 @@ export async function saveRecord(record: MatchRecord, providedMulti?: any): Prom
   }
 }
 
-
 export async function listActiveMatchIds(): Promise<string[]> {
   return await redis.smembers(ACTIVE_MATCHES_SET);
 }
@@ -85,7 +82,6 @@ export async function listWaitingMatchIds(): Promise<string[]> {
 export async function getExpiredMatches(now: number): Promise<string[]> {
   return await redis.zrangebyscore(TIMEOUTS_ZSET, 0, now);
 }
-
 
 export async function findWaitingMatchId(): Promise<string | null> {
   // Safe loop instead of recursion to prevent stack overflow
@@ -105,8 +101,6 @@ export async function findWaitingMatchId(): Promise<string | null> {
   return null;
 }
 
-
-
 export async function getQueueCount(): Promise<number> {
   return await redis.scard(WAITING_MATCHES_SET);
 }
@@ -114,7 +108,6 @@ export async function getQueueCount(): Promise<number> {
 export async function clearWaitingMatch(matchId: string): Promise<void> {
   await redis.srem(WAITING_MATCHES_SET, matchId);
 }
-
 
 export function newIds(): { matchId: string; playerId: string } {
   return { matchId: nanoid(8).toUpperCase(), playerId: nanoid(10) };
@@ -203,8 +196,6 @@ export async function releaseMatchLock(matchId: string): Promise<void> {
   await redis.del(lockKey);
 }
 
-
-
 export async function updateMatchState(match: MatchState): Promise<void> {
   const record = await getMatch(match.id);
   if (!record) return;
@@ -270,7 +261,11 @@ export async function injectAiIntoMatch(matchId: string): Promise<{ botId: strin
     addSecondPlayer(record.match, botId, "AI Duelist X21");
     record.match.players[botId]!.isBot = true;
 
-    // Immediately flag the AI as Ready
+    // Instantly start the match if the opponent is AI by auto-flagging both players as ready
+    const humanId = record.match.playerOrder[0];
+    if (humanId) {
+      record.match.readyStatus[humanId] = true;
+    }
     const events = commandReady(record.match, botId);
 
     const multi = redis.multi();
