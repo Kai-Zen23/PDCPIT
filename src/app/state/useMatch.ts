@@ -30,7 +30,7 @@ export function useMatchConnection() {
       // Fetch initial state via HTTP to avoid waiting for WebSocket connect
       import("../../lib/backend").then(({ apiGetMatchState }) => {
         apiGetMatchState(session.matchId, session.playerId)
-          .then((s) => setState(s))
+          .then((s) => setState((prev) => prev ? prev : s))
           .catch(() => {});
       });
     }
