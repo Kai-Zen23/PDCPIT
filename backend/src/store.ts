@@ -30,11 +30,11 @@ export type MatchRecord = {
  * Serializes MatchRecord for Redis storage.
  * socketsByPlayer Map is converted to an object for storage in a Redis Hash.
  */
-export async function saveRecord(record: MatchRecord): Promise<void> {
-  const { match, socketsByPlayer } = record;
+export async function saveRecord(record: MatchRecord, providedMulti?: any): Promise<void> {
+  const { match } = record;
   const matchId = match.id;
 
-  const multi = redis.multi();
+  const multi = providedMulti || redis.multi();
 
   // Save match state as JSON
   multi.set(MATCH_KEY(matchId), JSON.stringify(match));
@@ -68,7 +68,9 @@ export async function saveRecord(record: MatchRecord): Promise<void> {
     multi.zrem(TIMEOUTS_ZSET, matchId);
   }
 
-  await multi.exec();
+  if (!providedMulti) {
+    await multi.exec();
+  }
 }
 
 
@@ -142,17 +144,59 @@ export async function joinExistingMatch(
   matchId: string,
   playerName: string,
 ): Promise<{ playerId: string; record: MatchRecord }> {
-  const record = await getMatch(matchId);
-  if (!record) throw new Error("Match not found.");
-  if (record.match.status !== "WAITING") throw new Error("Match already started or finished.");
-  if (record.match.playerOrder.length >= 2) throw new Error("Match is full.");
-  
-  const playerId = nanoid(10);
-  addSecondPlayer(record.match, playerId, playerName);
-  
-  // Update state
-  await saveRecord(record);
-  return { playerId, record };
+  const key = MATCH_KEY(matchId);
+  const maxRetries = 5;
+
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    await redis.watch(key);
+    const record = await getMatch(matchId);
+    if (!record) {
+      await redis.unwatch();
+      throw new Error("Match not found.");
+    }
+    if (record.match.status !== "WAITING") {
+      await redis.unwatch();
+      throw new Error("Match already started or finished.");
+    }
+    if (record.match.playerOrder.length >= 2) {
+      await redis.unwatch();
+      throw new Error("Match is full.");
+    }
+
+    const playerId = nanoid(10);
+    addSecondPlayer(record.match, playerId, playerName);
+
+    const multi = redis.multi();
+    await saveRecord(record, multi);
+    const results = await multi.exec();
+
+    if (results === null) {
+      // Optimistic concurrency locking failure: another thread modified the key. Retry.
+      continue;
+    }
+
+    return { playerId, record };
+  }
+
+  throw new Error("Server is experiencing high concurrent load. Join request dropped.");
+}
+
+/**
+ * Acquires a distributed lock for a specific match to prevent duplicate interval execution
+ * across horizontally scaled Nginx game server instances.
+ */
+export async function acquireMatchLock(matchId: string, ttlMs: number = 5000): Promise<boolean> {
+  const lockKey = `lock:match:${matchId}`;
+  const acquired = await redis.set(lockKey, "locked", "PX", ttlMs, "NX");
+  return acquired === "OK";
+}
+
+/**
+ * Releases the distributed match lock.
+ */
+export async function releaseMatchLock(matchId: string): Promise<void> {
+  const lockKey = `lock:match:${matchId}`;
+  await redis.del(lockKey);
 }
 
 

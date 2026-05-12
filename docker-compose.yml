@@ -1,0 +1,70 @@
+version: '3.8'
+
+services:
+  # Distributed Cache Database Cluster Layer
+  redis:
+    image: redis:7-alpine
+    container_name: cardclash-redis
+    ports:
+      - "6379:6379"
+    restart: always
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    networks:
+      - game_subnet
+
+  # Clustered Backend Game Server Instance 1
+  game-node-1:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: cardclash-node-1
+    restart: always
+    environment:
+      - PORT=4000
+      - REDIS_URL=redis://redis:6379
+      - CORS_ORIGIN=*
+    networks:
+      - game_subnet
+    depends_on:
+      - redis
+
+  # Clustered Backend Game Server Instance 2
+  game-node-2:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: cardclash-node-2
+    restart: always
+    environment:
+      - PORT=4000
+      - REDIS_URL=redis://redis:6379
+      - CORS_ORIGIN=*
+    networks:
+      - game_subnet
+    depends_on:
+      - redis
+
+  # Nginx Load Balancer Edge Gateway
+  nginx:
+    image: nginx:alpine
+    container_name: cardclash-loadbalancer
+    restart: always
+    ports:
+      - "80:80"
+    volumes:
+      - ./backend/nginx.conf:/etc/nginx/nginx.conf:ro
+    networks:
+      - game_subnet
+    depends_on:
+      - game-node-1
+      - game-node-2
+
+networks:
+  game_subnet:
+    driver: bridge
+
+volumes:
+  redis_data:
+    driver: local
