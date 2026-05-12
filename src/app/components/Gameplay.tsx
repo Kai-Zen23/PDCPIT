@@ -40,6 +40,14 @@ export function Gameplay() {
   // Use results if available, otherwise live state
   const state = roundResults || liveState;
 
+  // Optimistic UI state for the Ready button
+  const [isReadying, setIsReadying] = useState(false);
+
+  // Reset optimistic state if a network error occurs
+  useEffect(() => {
+    if (error) setIsReadying(false);
+  }, [error]);
+
   // Update clock offset whenever we get a fresh server timestamp
   useEffect(() => {
     if (liveState?.serverTime) {
@@ -188,11 +196,14 @@ export function Gameplay() {
           <motion.button
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.98 }}
-            onClick={() => sendReady()}
-            disabled={amReady}
-            className={`w-full py-5 rounded-2xl text-xl font-orbitron tracking-[0.2em] transition-all ${amReady ? 'bg-[#1E1E1E] text-[#B0B0B0]/40 border border-[#B0B0B0]/10 cursor-default' : 'bg-gradient-to-r from-[#9D4EDD] to-[#4CC9F0] text-white shadow-[0_0_40px_rgba(157,78,221,0.4)] hover:shadow-[0_0_60px_rgba(157,78,221,0.6)]'}`}
+            onClick={() => {
+              setIsReadying(true);
+              sendReady();
+            }}
+            disabled={amReady || isReadying}
+            className={`w-full py-5 rounded-2xl text-xl font-orbitron tracking-[0.2em] transition-all ${amReady || isReadying ? 'bg-[#1E1E1E] text-[#B0B0B0]/40 border border-[#B0B0B0]/10 cursor-default' : 'bg-gradient-to-r from-[#9D4EDD] to-[#4CC9F0] text-white shadow-[0_0_40px_rgba(157,78,221,0.4)] hover:shadow-[0_0_60px_rgba(157,78,221,0.6)]'}`}
           >
-            {amReady ? 'READY CONFIRMED' : 'INITIALIZE READY'}
+            {amReady || isReadying ? 'READY CONFIRMED' : 'INITIALIZE READY'}
           </motion.button>
         </motion.div>
       </div>
