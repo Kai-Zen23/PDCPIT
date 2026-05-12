@@ -44,10 +44,29 @@ export function Gameplay() {
   // Optimistic UI state for the Ready button
   const [isReadying, setIsReadying] = useState(false);
 
-  // Reset optimistic state if a network error occurs
+  // Auto-reset optimistic state if network error occurs
   useEffect(() => {
     if (error) setIsReadying(false);
   }, [error]);
+
+  // Fallback resilience: automatically reset loading state if server packet drops or lags
+  useEffect(() => {
+    if (isReadying) {
+      const timer = setTimeout(() => {
+        setIsReadying(false);
+      }, 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [isReadying]);
+
+  // Sync state cleanly when actual socket server confirmations arrive
+  useEffect(() => {
+    if (liveState?.readyStatus && liveState.you?.playerId) {
+      if (liveState.readyStatus[liveState.you.playerId]) {
+        setIsReadying(false);
+      }
+    }
+  }, [liveState?.readyStatus, liveState?.you?.playerId]);
 
   // Update clock offset whenever we get a fresh server timestamp
   useEffect(() => {
