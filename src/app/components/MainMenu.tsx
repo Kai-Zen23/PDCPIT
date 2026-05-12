@@ -120,7 +120,7 @@ export function MainMenu() {
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
             onClick={() => navigate('/lobby', { state: { mode: 'join' } })}
-            className="relative px-8 py-4 bg-[#1E1E1E] border-2 border-[#4CC9F0]/50 rounded-xl overflow-hidden group"
+            className="relative px-8 py-4 bg-[#1E1E1E] border-2 border-[#4CC9F0]/50 rounded-xl overflow-hidden group cursor-pointer"
             style={{
               fontFamily: 'Orbitron, sans-serif',
               boxShadow: '0 0 20px rgba(76, 201, 240, 0.3)'
@@ -128,6 +128,20 @@ export function MainMenu() {
           >
             <div className="absolute inset-0 bg-[#4CC9F0]/10 opacity-0 group-hover:opacity-100 transition-opacity"></div>
             <span className="relative text-xl text-[#F5F5F5] tracking-wide">JOIN ROOM</span>
+          </motion.button>
+
+          <motion.button
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+            onClick={() => navigate('/manual')}
+            className="relative px-8 py-4 bg-[#1E1E1E] border-2 border-[#2ECC71]/50 rounded-xl overflow-hidden group cursor-pointer"
+            style={{
+              fontFamily: 'Orbitron, sans-serif',
+              boxShadow: '0 0 20px rgba(46, 204, 113, 0.3)'
+            }}
+          >
+            <div className="absolute inset-0 bg-[#2ECC71]/10 opacity-0 group-hover:opacity-100 transition-opacity"></div>
+            <span className="relative text-xl text-[#F5F5F5] tracking-wide">HOW TO PLAY</span>
           </motion.button>
         </motion.div>
 
