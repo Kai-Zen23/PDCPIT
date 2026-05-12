@@ -158,10 +158,10 @@ export function commandReady(match: MatchState, playerId: string): MatchEvent[] 
 
   match.readyStatus[playerId] = true;
 
-  // If this is the first player to ready, start the 10s countdown
+  // If this is the first player to ready, start the 60s countdown
   const readiedCount = Object.values(match.readyStatus).filter(Boolean).length;
   if (readiedCount === 1) {
-    match.readyCountdownExpiresAt = Date.now() + 10000;
+    match.readyCountdownExpiresAt = Date.now() + 60000;
   }
 
   // If both are ready, start immediately
