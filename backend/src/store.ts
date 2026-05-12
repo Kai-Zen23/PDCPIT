@@ -1,7 +1,7 @@
 import { Redis } from "ioredis";
 import { nanoid } from "nanoid";
-import type { MatchState } from "./types.js";
-import { addSecondPlayer, createMatch, startMatch } from "./engine.js";
+import type { MatchState, MatchEvent } from "./types.js";
+import { addSecondPlayer, createMatch, startMatch, commandReady } from "./engine.js";
 
 const REDIS_URL = process.env.REDIS_URL || "redis://localhost:6379";
 const redis = new Redis(REDIS_URL, {
@@ -76,6 +76,10 @@ export async function saveRecord(record: MatchRecord, providedMulti?: any): Prom
 
 export async function listActiveMatchIds(): Promise<string[]> {
   return await redis.smembers(ACTIVE_MATCHES_SET);
+}
+
+export async function listWaitingMatchIds(): Promise<string[]> {
+  return await redis.smembers(WAITING_MATCHES_SET);
 }
 
 export async function getExpiredMatches(now: number): Promise<string[]> {
@@ -247,4 +251,38 @@ export async function maybeAdvanceAfterRound(record: MatchRecord): Promise<void>
   }
 }
 
+/**
+ * Autonomously injects an AI Bot opponent into a stalled queue match using OCC.
+ */
+export async function injectAiIntoMatch(matchId: string): Promise<{ botId: string; events: MatchEvent[]; record: MatchRecord } | null> {
+  const key = MATCH_KEY(matchId);
+  const maxRetries = 5;
 
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    await redis.watch(key);
+    const record = await getMatch(matchId);
+    if (!record || record.match.status !== "WAITING" || record.match.playerOrder.length >= 2) {
+      await redis.unwatch();
+      return null;
+    }
+
+    const botId = `bot_${nanoid(6)}`;
+    addSecondPlayer(record.match, botId, "AI Duelist X21");
+    record.match.players[botId]!.isBot = true;
+
+    // Immediately flag the AI as Ready
+    const events = commandReady(record.match, botId);
+
+    const multi = redis.multi();
+    await saveRecord(record, multi);
+    const results = await multi.exec();
+
+    if (results === null) {
+      continue;
+    }
+
+    return { botId, events, record };
+  }
+
+  return null;
+}

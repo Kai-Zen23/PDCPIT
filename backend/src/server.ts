@@ -17,6 +17,7 @@ import {
   joinExistingMatch,
   findWaitingMatchId,
   listActiveMatchIds,
+  listWaitingMatchIds,
   maybeAdvanceAfterRound,
   updateMatchState,
   unbindSocket,
@@ -27,6 +28,7 @@ import {
   saveRecord,
   acquireMatchLock,
   releaseMatchLock,
+  injectAiIntoMatch,
 } from "./store.js";
 import { viewForPlayer } from "./view.js";
 
@@ -301,29 +303,159 @@ io.on("connection", (socket) => {
 const TURN_TIMEOUT_MS = 15000;
 setInterval(async () => {
   const now = Date.now();
-  // PERFORMANCE FIX: Only fetch matches that are actually expired
+
+  // --- 1. EVALUATE AI BOT AUTO-QUEUE INJECTIONS ---
+  try {
+    const waitingIds = await listWaitingMatchIds();
+    await Promise.allSettled(
+      waitingIds.map(async (matchId) => {
+        const lockAcquired = await acquireMatchLock(`ai_inject:${matchId}`, 2000);
+        if (!lockAcquired) return;
+        try {
+          const record = await getMatch(matchId);
+          if (!record || record.match.status !== "WAITING") return;
+          
+          // If single player public match stalled for > 60 seconds
+          if (record.match.playerOrder.length === 1 && !record.match.isPrivate) {
+            if (now - record.match.createdAt > 60000) {
+              console.log(`[AI Bot] Triggering autonomous AI Bot insertion for stale queue match: ${matchId}`);
+              const result = await injectAiIntoMatch(matchId);
+              if (result) {
+                io.to(room(matchId)).emit("match:event", { type: "MATCH:STARTED", matchId });
+                for (const ev of result.events) {
+                  io.to(room(matchId)).emit("match:event", ev);
+                }
+                await emitState(matchId);
+              }
+            }
+          }
+        } finally {
+          await releaseMatchLock(`ai_inject:${matchId}`);
+        }
+      })
+    );
+  } catch (err) {
+    // silently continue
+  }
+
+  // --- 2. EVALUATE LIVE BOT GAMEPLAY HEURISTICS ---
+  try {
+    const activeIds = await listActiveMatchIds();
+    await Promise.allSettled(
+      activeIds.map(async (matchId) => {
+        const record = await getMatch(matchId);
+        if (!record || record.match.status !== "IN_PROGRESS" || !record.match.round || record.match.round.ended) return;
+        
+        const activePid = record.match.round.activePlayerId;
+        const activePlayer = record.match.players[activePid];
+        if (!activePlayer?.isBot) return;
+
+        // Ensure Bot mimics human pacing with a 2.5-second processing delay
+        if (now - record.match.round.turnStartedAt < 2500) return;
+
+        // Distributed safety: guarantee Bot turn executes on exactly one cluster worker
+        const lockAcquired = await acquireMatchLock(`bot_turn:${matchId}:${record.match.round.roundNumber}:${record.match.round.turnStartedAt}`, 3000);
+        if (!lockAcquired) return;
+
+        try {
+          const { match } = record;
+          const round = match.round!;
+          const botState = round.players[activePid]!;
+          
+          // Sum values: hidden cards are fully visible to server logic
+          const myTotal = botState.hand.reduce((acc, c) => acc + c.value, 0);
+          
+          // Find opponent visible total
+          const oppPid = match.playerOrder.find(p => p !== activePid)!;
+          const oppState = round.players[oppPid];
+          const oppVisibleTotal = oppState?.hand.filter(c => c.visibility === "VISIBLE").reduce((acc, c) => acc + c.value, 0) || 0;
+
+          let events: MatchEvent[] = [];
+          let actionTaken = false;
+
+          // Rule A: Self-Preservation (If busted, try to purge)
+          if (myTotal > round.target && !botState.powerUpUsedThisRound) {
+            if (activePlayer.powerUps.includes("double_purge") && botState.hand.length >= 2) {
+              events = commandPowerUp(match, activePid, { type: "double_purge" });
+              actionTaken = true;
+            } else if (activePlayer.powerUps.includes("self_cleanse") && botState.hand.length >= 1) {
+              events = commandPowerUp(match, activePid, { type: "self_cleanse" });
+              actionTaken = true;
+            } else if (activePlayer.powerUps.includes("target_shift_28") && round.target < 28) {
+              events = commandPowerUp(match, activePid, { type: "target_shift_28" });
+              actionTaken = true;
+            }
+          }
+
+          // Rule B: Aggressive play
+          if (!actionTaken && oppVisibleTotal >= 18 && !botState.powerUpUsedThisRound) {
+            if (activePlayer.powerUps.includes("card_destroyer") && oppState && oppState.hand.length > 0) {
+              // Find opponent's highest visible card index
+              let highestIdx = 0;
+              let highestVal = -1;
+              oppState.hand.forEach((c, idx) => {
+                if (c.visibility === "VISIBLE" && c.value > highestVal) {
+                  highestVal = c.value;
+                  highestIdx = idx;
+                }
+              });
+              events = commandPowerUp(match, activePid, { type: "card_destroyer", targetCardIndex: highestIdx });
+              actionTaken = true;
+            } else if (activePlayer.powerUps.includes("rightmost_removal")) {
+              events = commandPowerUp(match, activePid, { type: "rightmost_removal" });
+              actionTaken = true;
+            }
+          }
+
+          // Rule C: Shift Target down if advantageous
+          if (!actionTaken && myTotal <= 19 && activePlayer.powerUps.includes("target_shift_19") && round.target > 19 && !botState.powerUpUsedThisRound) {
+            events = commandPowerUp(match, activePid, { type: "target_shift_19" });
+            actionTaken = true;
+          }
+
+          // Standard Turn action
+          if (!actionTaken) {
+            if (myTotal >= 18 && myTotal <= round.target) {
+              events = commandStand(match, activePid);
+            } else {
+              events = commandDraw(match, activePid);
+            }
+          }
+
+          console.log(`[AI Bot Action] Executed decision for Bot ${activePid} in match ${matchId}. Total: ${myTotal}`);
+          for (const ev of events) io.to(room(matchId)).emit("match:event", ev);
+          await saveRecord(record);
+          await maybeAdvanceAfterRound(record);
+          await emitState(matchId, record);
+        } catch (err) {
+          console.error(`[AI Bot Turn Error]`, err);
+        }
+      })
+    );
+  } catch (err) {
+    // silently continue
+  }
+
+  // --- 3. EXISTING EXPIRED TIMEOUT CHECKS ---
   const expiredIds = await getExpiredMatches(now);
   
-  // PARALLEL PROCESSING: Evaluate expired timeouts concurrently without blocking main Event Loop ticks
   await Promise.allSettled(
     expiredIds.map(async (matchId) => {
-      // DISTRIBUTED MULTI-SERVER GUARD: Guarantee timeout evaluates on exactly one Nginx game server cluster instance
       const lockAcquired = await acquireMatchLock(matchId, 3000);
-      if (!lockAcquired) return; // Handled by parallel sibling server
+      if (!lockAcquired) return;
 
       try {
         const record = await getMatch(matchId);
         if (!record) {
-          await clearWaitingMatch(matchId); // Cleanup index if record missing
+          await clearWaitingMatch(matchId);
           return;
         }
         const { match } = record;
 
-        // 1. Ready Timeout check
         if (match.status === "WAITING" && match.readyCountdownExpiresAt && now > match.readyCountdownExpiresAt) {
           console.log(`[Timer] Ready-up timeout for match ${matchId}. Terminating.`);
           match.status = "FINISHED";
-          match.winnerPlayerId = null; // No winner
+          match.winnerPlayerId = null;
           match.readyCountdownExpiresAt = null;
           
           io.to(room(matchId)).emit("match:error", { 
@@ -335,7 +467,6 @@ setInterval(async () => {
           return;
         }
 
-        // Handle Round turn timeouts
         if (match.status === "IN_PROGRESS" && match.round && !match.round.ended) {
           const activePlayerId = match.round.activePlayerId;
           console.log(`[Timer] Timeout for match ${matchId} (active: ${activePlayerId})`);
