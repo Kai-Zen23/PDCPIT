@@ -22,6 +22,11 @@ export function NameEntryMatchmaking() {
   // After we enqueue (and save session), we can use the same hook as Gameplay/Waiting.
   const { state, error, assignAiBotFallback } = useMatchConnection();
 
+  const assignAiRef = useRef(assignAiBotFallback);
+  useEffect(() => {
+    assignAiRef.current = assignAiBotFallback;
+  });
+
   const [waitingElapsed, setWaitingElapsed] = useState(0);
 
   // Fallback timer: automatically inject AI Bot profile if waiting in searching queue hits 60 seconds
@@ -31,7 +36,7 @@ export function NameEntryMatchmaking() {
         setWaitingElapsed((prev) => {
           if (prev >= 60) {
             clearInterval(interval);
-            if (assignAiBotFallback) assignAiBotFallback();
+            if (assignAiRef.current) assignAiRef.current();
             return 60;
           }
           return prev + 1;
@@ -44,7 +49,7 @@ export function NameEntryMatchmaking() {
     } else {
       setWaitingElapsed(0);
     }
-  }, [matchState, assignAiBotFallback]);
+  }, [matchState]);
 
   useEffect(() => {
     if (matchState !== "searching") return;

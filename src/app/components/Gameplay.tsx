@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useNavigate } from "react-router";
 import { motion, AnimatePresence } from "motion/react";
 import { 
@@ -180,6 +180,11 @@ export function Gameplay() {
   }, [graceStart]);
 
   // Matchmaking fallback: Track queue waiting elapsed seconds up to 60
+  const assignAiRef = useRef(assignAiBotFallback);
+  useEffect(() => {
+    assignAiRef.current = assignAiBotFallback;
+  });
+
   const [waitingElapsed, setWaitingElapsed] = useState(0);
 
   useEffect(() => {
@@ -189,7 +194,7 @@ export function Gameplay() {
         setWaitingElapsed((prev) => {
           if (prev >= 60) {
             clearInterval(interval);
-            assignAiBotFallback();
+            if (assignAiRef.current) assignAiRef.current();
             return 60;
           }
           return prev + 1;
