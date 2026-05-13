@@ -36,6 +36,32 @@ export function useMatchConnection() {
     }
   }, [session?.matchId, session?.playerId]);
 
+  // Resilient Synchronization Fallback: If match status remains WAITING (e.g. during authentication sync),
+  // proactively poll the backend state every 1.5 seconds to instantly catch state changes 
+  // bypassing potential socket packet drops across clustered horizontal scaling environments.
+  useEffect(() => {
+    if (!session || state?.status === "IN_PROGRESS" || state?.status === "FINISHED") return;
+
+    const interval = setInterval(() => {
+      import("../../lib/backend").then(({ apiGetMatchState }) => {
+        apiGetMatchState(session.matchId, session.playerId)
+          .then((s) => {
+            setState((prev) => {
+              // If server transitioned, or we have updated ready statuses, sync up perfectly
+              if (!prev || s.status !== prev.status || JSON.stringify(s.readyStatus) !== JSON.stringify(prev.readyStatus)) {
+                return s;
+              }
+              return prev;
+            });
+          })
+          .catch(() => {});
+      });
+    }, 1500);
+
+    return () => clearInterval(interval);
+  }, [session?.matchId, session?.playerId, state?.status]);
+
+
   useEffect(() => {
     if (!session) return;
 
