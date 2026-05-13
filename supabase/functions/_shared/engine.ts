@@ -221,7 +221,7 @@ function ensureCanAct(round: RoundState, playerId: string): void {
   if (ps.stood) throw new Error("You already stood.");
 }
 
-function maybeForceStand(round: RoundState, playerId: string, events: MatchEvent[], matchId: string): void {}
+function maybeForceStand(round: RoundState, playerId: string, events: MatchEvent[], matchId: string): void { }
 
 function passTurn(round: RoundState, matchId: string, events: MatchEvent[]): void {
   const playerIds = Object.keys(round.players);
@@ -356,7 +356,7 @@ export function commandPowerUp(
     ps.powerUpUsedThisRound = true;
     ps.turnsTaken += 1;
     events.push({ type: "POWER_UP:USED", matchId: match.id, playerId, powerUp: powerUpType });
-    
+
     maybeForceStand(round, playerId, events, match.id);
     evaluateAndMaybeEndRound(match, events);
     if (!round.ended) passTurn(round, match.id, events);
