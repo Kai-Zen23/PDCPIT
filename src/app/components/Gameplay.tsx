@@ -145,6 +145,17 @@ export function Gameplay() {
 
     return () => clearInterval(interval);
   }, [state?.round?.turnStartedAt, state?.round?.ended, turnLocalStart]);
+
+  // Seamless auto-draw mechanic: automatically draw a card when the turn timer runs out
+  useEffect(() => {
+    if (isYourTurn && timeLeft === 0 && state?.round && !state.round.ended && !state.round.you.stood) {
+      const timer = setTimeout(() => {
+        sendDraw();
+      }, 400); // Small delay so the player actually sees the timer hit 00:00 before drawing
+      return () => clearTimeout(timer);
+    }
+  }, [isYourTurn, timeLeft, state?.round?.ended, state?.round?.you?.stood]);
+
   useEffect(() => {
     if (state?.status === "FINISHED") {
       // If the match was terminated before the first round ever started, the authentication timeout expired.
