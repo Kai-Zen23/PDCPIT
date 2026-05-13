@@ -8,26 +8,3 @@ services:
       - type: rewrite
         source: /*
         destination: /index.html
-
-  - type: web
-    name: cardgame-backend
-    env: node
-    rootDir: backend
-    buildCommand: npm install --include=dev && npm run build
-    startCommand: npm run start
-    healthCheckPath: /health
-    autoDeploy: true
-    envVars:
-      - key: REDIS_URL
-        fromService:
-          type: redis
-          name: cardgame-redis
-          property: connectionString
-
-  - type: redis
-    name: cardgame-redis
-    ipAllowList: [] # Secure: Only allow internal traffic
-    plan: free
-
-
-
