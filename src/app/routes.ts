@@ -9,6 +9,7 @@ import { AnonymousMatchmaking } from "./components/AnonymousMatchmaking";
 import { NameEntryMatchmaking } from "./components/NameEntryMatchmaking";
 import { MatchFound } from "./components/MatchFound";
 import { Draw } from "./components/Draw";
+import { GameManual } from "./components/GameManual";
 
 export const router = createBrowserRouter([
   {
@@ -46,5 +47,9 @@ export const router = createBrowserRouter([
   {
     path: "/draw",
     Component: Draw,
+  },
+  {
+    path: "/manual",
+    Component: GameManual,
   },
 ]);

@@ -141,6 +141,13 @@ export function Gameplay() {
 
   useEffect(() => {
     if (state?.status === "FINISHED") {
+      // If the match was terminated before the first round ever started, the authentication timeout expired.
+      // Redirect seamlessly back to the Home Hub instead of showing a tie outcome.
+      if (!state.round) {
+        navigate("/");
+        return;
+      }
+
       const youId = state.you.playerId;
       if (state.winnerPlayerId === youId) {
         navigate("/victory");
@@ -150,7 +157,7 @@ export function Gameplay() {
         navigate("/defeat");
       }
     }
-  }, [state?.status, state?.you.lives, state?.opponent?.lives, navigate]);
+  }, [state?.status, state?.round, state?.winnerPlayerId, state?.you.playerId, navigate]);
 
   if (!state) {
     return (
