@@ -70,6 +70,7 @@ export type BackendSocket = Socket<
   },
   {
     "match:state": (data: MatchView) => void;
+    "match:patch": (data: { patch: { type: string; payload?: any }; stateHash: string }) => void;
     "match:event": (data: MatchEvent) => void;
     "match:error": (data: { commandId?: string; message: string }) => void;
   }

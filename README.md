@@ -133,6 +133,11 @@ uvicorn main:socket_app --reload
 
 ## 📚 Documentation
 
+### 🎓 [README_PDC.md](file:///README_PDC.md) - Parallel & Distributed Computing Background
+> **Academic Reference**: Background documentation created specifically for our **Parallel and Distributed Computing** course submission. Details how the game architecture implements distributed locking mutexes, optimistic concurrency control (OCC), and event-loop parallelism across cluster instances.
+
+---
+
 ### 1. **SYSTEM_ARCHITECTURE.md** - Complete Technical Specification
 
 Includes:

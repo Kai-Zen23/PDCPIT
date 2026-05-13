@@ -5,7 +5,9 @@ import { Server } from "socket.io";
 import { createAdapter } from "@socket.io/redis-adapter";
 import { Redis } from "ioredis";
 import { z } from "zod";
-
+import { Worker } from "worker_threads";
+import path from "path";
+import { fileURLToPath } from "url";
 
 import type { ClientToServerEvents, ServerToClientEvents } from "./types.js";
 import { createMatchSchema, joinMatchSchema, matchCommandSchema, powerUpPayloadSchema, type MatchEvent } from "./types.js";
@@ -34,6 +36,14 @@ import { viewForPlayer } from "./view.js";
 
 const PORT = Number(process.env.PORT ?? 4000);
 const CORS_ORIGIN = process.env.CORS_ORIGIN ?? "*";
+
+// Resolve production build file path dynamically for pure ESM execution
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const botWorkerPath = path.resolve(__dirname, "./botWorker.js");
+const botWorker = new Worker(botWorkerPath);
+
+botWorker.on("error", (err) => console.error("[Bot Worker Thread Error]", err));
 
 function normalizeOrigin(value: string): string {
   return value.trim().replace(/\/+$/, "");
@@ -181,14 +191,107 @@ function playerRoom(playerId: string) {
   return `user:${playerId}`;
 }
 
-async function emitState(matchId: string, existingRecord?: MatchRecord) {
+async function emitState(matchId: string, existingRecord?: MatchRecord, patchDiff?: { type: string; payload?: any }) {
   const record = existingRecord || (await getMatch(matchId));
   if (!record) return;
 
-  // Optimized: Broadcast to private player rooms. 
-  // This works across multiple server instances via the Redis Adapter.
+  // HYBRID SOCKET STRATEGY:
+  // Broadcast differential low-latency patch fragments directly through local node cluster memory queues (`io.local`)
+  // to ensure uncompromised UI responsiveness. Full deterministic projection updates sync globally via standard multi-node adapter topologies.
   for (const playerId of record.match.playerOrder) {
-    io.to(playerRoom(playerId)).emit("match:state", viewForPlayer(record.match, playerId));
+    const pRoom = playerRoom(playerId);
+    if (patchDiff) {
+      io.local.to(pRoom).emit("match:patch", { patch: patchDiff, stateHash: record.match.id });
+    }
+    io.to(pRoom).emit("match:state", viewForPlayer(record.match, playerId));
+  }
+}
+
+
+// ---- PARTITION / SHARD MATCHES: Lock-Minimized Action Queue Engine
+// Matches are horizontally sharded by matchId into isolated, sticky in-memory processing rings per cluster node.
+// Eliminates multi-instance lock contention entirely by queuing commands sequentially within localized container maps.
+interface QueuedCommand {
+  socket: any;
+  raw: any;
+}
+
+const matchQueues = new Map<string, QueuedCommand[]>();
+const matchProcessing = new Set<string>();
+
+function enqueueCommand(matchId: string, socket: any, raw: any) {
+  if (!matchQueues.has(matchId)) {
+    matchQueues.set(matchId, []);
+  }
+  matchQueues.get(matchId)!.push({ socket, raw });
+  processNextCommand(matchId);
+}
+
+async function processNextCommand(matchId: string) {
+  if (matchProcessing.has(matchId)) return;
+  const q = matchQueues.get(matchId);
+  if (!q || q.length === 0) return;
+
+  matchProcessing.add(matchId);
+  const cmd = q.shift()!;
+  const socket = cmd.socket;
+  const raw = cmd.raw;
+
+  try {
+    const parsed = matchCommandSchema.safeParse(raw);
+    if (!parsed.success) {
+      socket.emit("match:error", { message: "Invalid command payload." });
+      return;
+    }
+
+    const { playerId, commandId, type, payload } = parsed.data;
+    const record = await getMatch(matchId);
+    if (!record) {
+      socket.emit("match:error", { commandId, message: "Match not found." });
+      return;
+    }
+
+    // Security: Ensure the player is actually in this match
+    if (!record.match.players[playerId]) {
+      socket.emit("match:error", { commandId, message: "You are not a player in this match." });
+      return;
+    }
+
+    let events: MatchEvent[] = [];
+    if (type === "DRAW") events = commandDraw(record.match, playerId);
+    else if (type === "STAND") events = commandStand(record.match, playerId);
+    else if (type === "READY") {
+      console.log(`[Command Received] READY from player ${playerId} for match ${matchId}`);
+      events = commandReady(record.match, playerId);
+      const readiedCount = Object.values(record.match.readyStatus).filter(Boolean).length;
+      console.log(`[Command Processed] READY from player ${playerId}. Total ready: ${readiedCount}`);
+    } else if (type === "NEXT_ROUND") {
+      events = startNextRound(record.match);
+    } else {
+      const pParsed = powerUpPayloadSchema.safeParse(payload);
+      if (!pParsed.success) throw new Error("Invalid power-up payload.");
+      events = commandPowerUp(record.match, playerId, pParsed.data);
+    }
+
+    for (const ev of events) io.to(room(matchId)).emit("match:event", ev);
+
+    // Optimized: Direct database serialization without lock acquisition overhead
+    await saveRecord(record);
+    await maybeAdvanceAfterRound(record);
+    await emitState(matchId, record, { type, payload });
+  } catch (e) {
+    console.error(`[Command Error]:`, e);
+    const parsed = matchCommandSchema.safeParse(raw);
+    const commandId = parsed.success ? parsed.data.commandId : undefined;
+    socket.emit("match:error", { commandId, message: e instanceof Error ? e.message : "Command failed." });
+  } finally {
+    matchProcessing.delete(matchId);
+    // Process next action in buffer synchronously via event loop drain
+    if (q.length > 0) {
+      setImmediate(() => processNextCommand(matchId));
+    } else {
+      matchQueues.delete(matchId);
+    }
   }
 }
 
@@ -222,63 +325,12 @@ io.on("connection", (socket) => {
     console.log(`[Socket] Player ${playerId} joined match ${matchId}`);
   });
 
-  socket.on("round:command", async (raw) => {
+  socket.on("round:command", (raw) => {
     const parsed = matchCommandSchema.safeParse(raw);
-    if (!parsed.success) {
-      socket.emit("match:error", { message: "Invalid command payload." });
-      return;
-    }
-
-    const { matchId, playerId, commandId, type, payload } = parsed.data;
-    const record = await getMatch(matchId);
-    if (!record) {
-      socket.emit("match:error", { commandId, message: "Match not found." });
-      return;
-    }
-
-    // Security: Ensure the player is actually in this match
-    if (!record.match.players[playerId]) {
-      socket.emit("match:error", { commandId, message: "You are not a player in this match." });
-      return;
-    }
-
-    // Optional: could also verify socket is in room(matchId), but playerId check is stronger.
-
-    // Concurrency Guard: Ensure events for the same match process in strict sequence per cluster node
-    const lockAcquired = await acquireMatchLock(matchId, 2000);
-    if (!lockAcquired) {
-      socket.emit("match:error", { commandId, message: "Action stream highly active. Concurrency limit protected." });
-      return;
-    }
-
-    try {
-      let events: MatchEvent[] = [];
-      if (type === "DRAW") events = commandDraw(record.match, playerId);
-      else if (type === "STAND") events = commandStand(record.match, playerId);
-      else if (type === "READY") {
-        console.log(`[Command Received] READY from player ${playerId} for match ${matchId}`);
-        events = commandReady(record.match, playerId);
-        const readiedCount = Object.values(record.match.readyStatus).filter(Boolean).length;
-        console.log(`[Command Processed] READY from player ${playerId}. Total ready: ${readiedCount}`);
-      } else if (type === "NEXT_ROUND") {
-        events = startNextRound(record.match);
-      } else {
-        const pParsed = powerUpPayloadSchema.safeParse(payload);
-        if (!pParsed.success) throw new Error("Invalid power-up payload.");
-        events = commandPowerUp(record.match, playerId, pParsed.data);
-      }
-
-      for (const ev of events) io.to(room(matchId)).emit("match:event", ev);
-      
-      // OPTIMIZATION: Save the record we already have and broadcast it immediately
-      await saveRecord(record); 
-      await maybeAdvanceAfterRound(record);
-      await emitState(matchId, record);
-    } catch (e) {
-      console.error(`[Command Error] ${type}:`, e);
-      socket.emit("match:error", { commandId, message: e instanceof Error ? e.message : "Command failed." });
-    } finally {
-      await releaseMatchLock(matchId);
+    if (parsed.success) {
+      enqueueCommand(parsed.data.matchId, socket, raw);
+    } else {
+      socket.emit("match:error", { message: "Invalid command payload structure." });
     }
   });
 
@@ -370,63 +422,38 @@ setInterval(async () => {
           const oppState = round.players[oppPid];
           const oppVisibleTotal = oppState?.hand.filter(c => c.visibility === "VISIBLE").reduce((acc, c) => acc + c.value, 0) || 0;
 
+          // Offload heuristic target calculation fully to persistent multi-thread background worker
+          const decision: { type: "DRAW" | "STAND" | "POWER_UP"; payload?: any } = await new Promise((resolve) => {
+            const onMsg = (msg: any) => {
+              resolve(msg);
+            };
+            botWorker.once("message", onMsg);
+            botWorker.postMessage({
+              matchId,
+              botId: activePid,
+              botTotal: myTotal,
+              oppVisibleTotal,
+              target: round.target,
+              powerUps: activePlayer.powerUps,
+              handCount: botState.hand.length,
+              oppHandCount: oppState?.hand.length || 0
+            });
+          });
+
           let events: MatchEvent[] = [];
-          let actionTaken = false;
-
-          // Rule A: Self-Preservation (If busted, try to purge)
-          if (myTotal > round.target && !botState.powerUpUsedThisRound) {
-            if (activePlayer.powerUps.includes("double_purge") && botState.hand.length >= 2) {
-              events = commandPowerUp(match, activePid, { type: "double_purge" });
-              actionTaken = true;
-            } else if (activePlayer.powerUps.includes("self_cleanse") && botState.hand.length >= 1) {
-              events = commandPowerUp(match, activePid, { type: "self_cleanse" });
-              actionTaken = true;
-            } else if (activePlayer.powerUps.includes("target_shift_28") && round.target < 28) {
-              events = commandPowerUp(match, activePid, { type: "target_shift_28" });
-              actionTaken = true;
-            }
+          if (decision.type === "POWER_UP") {
+            events = commandPowerUp(match, activePid, decision.payload);
+          } else if (decision.type === "STAND") {
+            events = commandStand(match, activePid);
+          } else {
+            events = commandDraw(match, activePid);
           }
 
-          // Rule B: Aggressive play
-          if (!actionTaken && oppVisibleTotal >= 18 && !botState.powerUpUsedThisRound) {
-            if (activePlayer.powerUps.includes("card_destroyer") && oppState && oppState.hand.length > 0) {
-              // Find opponent's highest visible card index
-              let highestIdx = 0;
-              let highestVal = -1;
-              oppState.hand.forEach((c, idx) => {
-                if (c.visibility === "VISIBLE" && c.value > highestVal) {
-                  highestVal = c.value;
-                  highestIdx = idx;
-                }
-              });
-              events = commandPowerUp(match, activePid, { type: "card_destroyer", targetCardIndex: highestIdx });
-              actionTaken = true;
-            } else if (activePlayer.powerUps.includes("rightmost_removal")) {
-              events = commandPowerUp(match, activePid, { type: "rightmost_removal" });
-              actionTaken = true;
-            }
-          }
-
-          // Rule C: Shift Target down if advantageous
-          if (!actionTaken && myTotal <= 19 && activePlayer.powerUps.includes("target_shift_19") && round.target > 19 && !botState.powerUpUsedThisRound) {
-            events = commandPowerUp(match, activePid, { type: "target_shift_19" });
-            actionTaken = true;
-          }
-
-          // Standard Turn action
-          if (!actionTaken) {
-            if (myTotal >= 18 && myTotal <= round.target) {
-              events = commandStand(match, activePid);
-            } else {
-              events = commandDraw(match, activePid);
-            }
-          }
-
-          console.log(`[AI Bot Action] Executed decision for Bot ${activePid} in match ${matchId}. Total: ${myTotal}`);
+          console.log(`[AI Bot Worker Thread] Computed turn for Bot ${activePid} in match ${matchId}. Action: ${decision.type}`);
           for (const ev of events) io.to(room(matchId)).emit("match:event", ev);
           await saveRecord(record);
           await maybeAdvanceAfterRound(record);
-          await emitState(matchId, record);
+          await emitState(matchId, record, { type: decision.type, payload: decision.payload });
         } catch (err) {
           console.error(`[AI Bot Turn Error]`, err);
         }

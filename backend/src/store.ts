@@ -12,6 +12,78 @@ redis.on("error", (err) => {
   console.error("[Redis Error]", err);
 });
 
+// Define custom atomic Lua commands for zero-latency matchmaking operations
+redis.defineCommand("atomicJoinMatch", {
+  numberOfKeys: 3, // KEYS[1] = matchKey, KEYS[2] = waitingSet, KEYS[3] = activeSet
+  lua: `
+    local matchStr = redis.call("get", KEYS[1])
+    if not matchStr then return nil end
+    
+    local match = cjson.decode(matchStr)
+    if match.status ~= "WAITING" or #match.playerOrder >= 2 then
+      return nil
+    end
+    
+    local playerId = ARGV[1]
+    local playerName = ARGV[2]
+    local maxLives = tonumber(ARGV[3])
+    
+    match.players[playerId] = {
+      id = playerId,
+      name = playerName,
+      lives = maxLives,
+      powerUps = {}
+    }
+    table.insert(match.playerOrder, playerId)
+    match.readyStatus[playerId] = false
+    
+    local newMatchStr = cjson.encode(match)
+    redis.call("set", KEYS[1], newMatchStr)
+    redis.call("srem", KEYS[2], match.id)
+    redis.call("sadd", KEYS[3], match.id)
+    
+    return newMatchStr
+  `,
+});
+
+redis.defineCommand("atomicInjectAi", {
+  numberOfKeys: 3, // KEYS[1] = matchKey, KEYS[2] = waitingSet, KEYS[3] = activeSet
+  lua: `
+    local matchStr = redis.call("get", KEYS[1])
+    if not matchStr then return nil end
+    
+    local match = cjson.decode(matchStr)
+    if match.status ~= "WAITING" or #match.playerOrder >= 2 then
+      return nil
+    end
+    
+    local botId = ARGV[1]
+    local maxLives = tonumber(ARGV[2])
+    
+    match.players[botId] = {
+      id = botId,
+      name = "AI Duelist X21",
+      lives = maxLives,
+      powerUps = {},
+      isBot = true
+    }
+    table.insert(match.playerOrder, botId)
+    match.readyStatus[botId] = true
+    
+    local humanId = match.playerOrder[1]
+    if humanId then
+      match.readyStatus[humanId] = true
+    end
+    
+    local newMatchStr = cjson.encode(match)
+    redis.call("set", KEYS[1], newMatchStr)
+    redis.call("srem", KEYS[2], match.id)
+    redis.call("sadd", KEYS[3], match.id)
+    
+    return newMatchStr
+  `,
+});
+
 // Key Prefixes
 const MATCH_KEY = (id: string) => `match:${id}`;
 const SOCKETS_KEY = (id: string) => `sockets:${id}`;
@@ -141,41 +213,32 @@ export async function joinExistingMatch(
   matchId: string,
   playerName: string,
 ): Promise<{ playerId: string; record: MatchRecord }> {
-  const key = MATCH_KEY(matchId);
-  const maxRetries = 5;
+  const playerId = nanoid(10);
+  // Execute pure atomic Redis C-engine script mapping directly to JSON strings
+  const updatedJsonStr = await (redis as any).atomicJoinMatch(
+    MATCH_KEY(matchId),
+    WAITING_MATCHES_SET,
+    ACTIVE_MATCHES_SET,
+    playerId,
+    playerName,
+    3 // maxLives
+  );
 
-  for (let attempt = 0; attempt < maxRetries; attempt++) {
-    await redis.watch(key);
-    const record = await getMatch(matchId);
-    if (!record) {
-      await redis.unwatch();
-      throw new Error("Match not found.");
-    }
-    if (record.match.status !== "WAITING") {
-      await redis.unwatch();
-      throw new Error("Match already started or finished.");
-    }
-    if (record.match.playerOrder.length >= 2) {
-      await redis.unwatch();
-      throw new Error("Match is full.");
-    }
-
-    const playerId = nanoid(10);
-    addSecondPlayer(record.match, playerId, playerName);
-
-    const multi = redis.multi();
-    await saveRecord(record, multi);
-    const results = await multi.exec();
-
-    if (results === null) {
-      // Optimistic concurrency locking failure: another thread modified the key. Retry.
-      continue;
-    }
-
-    return { playerId, record };
+  if (!updatedJsonStr) {
+    throw new Error("Match not available or already full.");
   }
 
-  throw new Error("Server is experiencing high concurrent load. Join request dropped.");
+  const match: MatchState = JSON.parse(updatedJsonStr);
+  const socketsData = await redis.hgetall(SOCKETS_KEY(matchId));
+  const socketsByPlayer = new Map<string, string>();
+  for (const [pId, sId] of Object.entries(socketsData)) {
+    socketsByPlayer.set(pId, sId);
+  }
+
+  return {
+    playerId,
+    record: { match, socketsByPlayer },
+  };
 }
 
 /**
@@ -246,38 +309,29 @@ export async function maybeAdvanceAfterRound(record: MatchRecord): Promise<void>
  * Autonomously injects an AI Bot opponent into a stalled queue match using OCC.
  */
 export async function injectAiIntoMatch(matchId: string): Promise<{ botId: string; events: MatchEvent[]; record: MatchRecord } | null> {
-  const key = MATCH_KEY(matchId);
-  const maxRetries = 5;
+  const botId = `bot_${nanoid(6)}`;
+  // Execute native atomic Lua script wrapper directly mapping to C-level JSON tree updates
+  const updatedJsonStr = await (redis as any).atomicInjectAi(
+    MATCH_KEY(matchId),
+    WAITING_MATCHES_SET,
+    ACTIVE_MATCHES_SET,
+    botId,
+    3 // maxLives
+  );
 
-  for (let attempt = 0; attempt < maxRetries; attempt++) {
-    await redis.watch(key);
-    const record = await getMatch(matchId);
-    if (!record || record.match.status !== "WAITING" || record.match.playerOrder.length >= 2) {
-      await redis.unwatch();
-      return null;
-    }
+  if (!updatedJsonStr) return null;
 
-    const botId = `bot_${nanoid(6)}`;
-    addSecondPlayer(record.match, botId, "AI Duelist X21");
-    record.match.players[botId]!.isBot = true;
-
-    // Instantly start the match if the opponent is AI by auto-flagging both players as ready
-    const humanId = record.match.playerOrder[0];
-    if (humanId) {
-      record.match.readyStatus[humanId] = true;
-    }
-    const events = commandReady(record.match, botId);
-
-    const multi = redis.multi();
-    await saveRecord(record, multi);
-    const results = await multi.exec();
-
-    if (results === null) {
-      continue;
-    }
-
-    return { botId, events, record };
+  const match: MatchState = JSON.parse(updatedJsonStr);
+  const socketsData = await redis.hgetall(SOCKETS_KEY(matchId));
+  const socketsByPlayer = new Map<string, string>();
+  for (const [pId, sId] of Object.entries(socketsData)) {
+    socketsByPlayer.set(pId, sId);
   }
 
-  return null;
+  // Generate deterministic client lifecycle transition updates locally
+  const events = commandReady(match, botId);
+  const record = { match, socketsByPlayer };
+  await saveRecord(record);
+
+  return { botId, events, record };
 }

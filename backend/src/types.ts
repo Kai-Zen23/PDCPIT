@@ -68,6 +68,7 @@ export type ClientToServerEvents = {
 
 export type ServerToClientEvents = {
   "match:state": (data: MatchViewForPlayer) => void;
+  "match:patch": (data: { patch: { type: string; payload?: any }; stateHash: string }) => void;
   "match:event": (data: MatchEvent) => void;
   "match:error": (data: { commandId?: string; message: string }) => void;
 };
