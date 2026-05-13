@@ -1,4 +1,5 @@
 import { nanoid } from "nanoid";
+import { invalidateViewCache } from "./view.js";
 import type {
   Card,
   MatchEvent,

@@ -2,6 +2,7 @@ import { Redis } from "ioredis";
 import { nanoid } from "nanoid";
 import type { MatchState, MatchEvent } from "./types.js";
 import { addSecondPlayer, createMatch, startMatch, commandReady } from "./engine.js";
+import { invalidateViewCache } from "./view.js";
 
 const REDIS_URL = process.env.REDIS_URL || "redis://localhost:6379";
 const redis = new Redis(REDIS_URL, {
@@ -84,6 +85,24 @@ redis.defineCommand("atomicInjectAi", {
   `,
 });
 
+redis.defineCommand("atomicVerifyWaitingMatch", {
+  numberOfKeys: 2, // KEYS[1] = matchKey, KEYS[2] = waitingSet
+  lua: `
+    local matchStr = redis.call("get", KEYS[1])
+    if not matchStr then return 0 end
+    
+    local match = cjson.decode(matchStr)
+    -- Return 1 only if match is still WAITING with exactly 1 player
+    if match.status == "WAITING" and #match.playerOrder == 1 then
+      return 1
+    end
+    
+    -- Match is no longer valid; remove from waiting set if present
+    redis.call("srem", KEYS[2], ARGV[1])
+    return 0
+  `,
+});
+
 // Key Prefixes
 const MATCH_KEY = (id: string) => `match:${id}`;
 const SOCKETS_KEY = (id: string) => `sockets:${id}`;
@@ -103,6 +122,9 @@ export type MatchRecord = {
 export async function saveRecord(record: MatchRecord, providedMulti?: any): Promise<void> {
   const { match } = record;
   const matchId = match.id;
+  
+  // Invalidate view cache whenever state changes
+  invalidateViewCache(match);
 
   const multi = providedMulti || redis.multi();
 
@@ -161,14 +183,20 @@ export async function findWaitingMatchId(): Promise<string | null> {
     const id = await redis.srandmember(WAITING_MATCHES_SET);
     if (!id) return null;
 
-    const record = await getMatch(id);
-    if (record && record.match.status === "WAITING" && record.match.playerOrder.length === 1) {
+    // ATOMIC CHECK: Verify match status hasn't changed before returning.
+    // Use Lua script to ensure the match is still WAITING with 1 player at the moment of selection.
+    const isStillValid = await (redis as any).atomicVerifyWaitingMatch(
+      MATCH_KEY(id),
+      WAITING_MATCHES_SET,
+      id
+    );
+    
+    if (isStillValid) {
       return id;
     }
 
-    // If we get here, the match ID was invalid/stale
-    console.log(`[Queue] Purging invalid match ID: ${id}`);
-    await redis.srem(WAITING_MATCHES_SET, id);
+    // If we get here, the match ID was invalid/stale (likely another node joined it)
+    console.log(`[Queue] Match ${id} no longer waiting (race condition avoided). Retrying.`);
   }
   return null;
 }

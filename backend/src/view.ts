@@ -16,7 +16,21 @@ function toCardView(card: Card, revealAll: boolean, viewerIsOwner: boolean): Car
   return { id: card.id, hidden: true, visibility: card.visibility };
 }
 
+// Memoization cache for view computations to reduce CPU overhead
+const viewCache = new WeakMap<MatchState, { matchId: string; views: Map<string, MatchViewForPlayer> }>();
+
+export function invalidateViewCache(match: MatchState): void {
+  viewCache.delete(match);
+}
+
 export function viewForPlayer(match: MatchState, playerId: string): MatchViewForPlayer {
+  // Check cache first: if this match state has been computed before, return cached view
+  let cache = viewCache.get(match);
+  if (cache && cache.matchId === match.id) {
+    const cached = cache.views.get(playerId);
+    if (cached) return cached;
+  }
+
   const you = match.players[playerId];
   if (!you) {
     throw new Error("Not a match player.");
@@ -42,14 +56,22 @@ export function viewForPlayer(match: MatchState, playerId: string): MatchViewFor
       : undefined,
   };
 
-  if (!match.round) return base;
+  if (!match.round) {
+    // Cache and return base view
+    if (!cache) {
+      viewCache.set(match, { matchId: match.id, views: new Map() });
+      cache = viewCache.get(match)!;
+    }
+    cache.views.set(playerId, base);
+    return base;
+  }
 
   const round = match.round;
   const yourRound = round.players[playerId];
   const oppRound = opponentId ? round.players[opponentId] : undefined;
   const revealAll = round.revealAll;
 
-  return {
+  const result: MatchViewForPlayer = {
     ...base,
     round: {
       roundNumber: round.roundNumber,
@@ -81,5 +103,12 @@ export function viewForPlayer(match: MatchState, playerId: string): MatchViewFor
         : undefined,
     },
   };
-}
 
+  // Cache the computed view
+  if (!cache) {
+    viewCache.set(match, { matchId: match.id, views: new Map() });
+    cache = viewCache.get(match)!;
+  }
+  cache.views.set(playerId, result);
+  return result;
+}

@@ -1,4 +1,5 @@
 import express from "express";
+import compression from "compression";
 import http from "http";
 import cors from "cors";
 import { Server } from "socket.io";
@@ -33,6 +34,7 @@ import {
   injectAiIntoMatch,
 } from "./store.js";
 import { viewForPlayer } from "./view.js";
+import { expressLatencyMiddleware } from "./metrics.js";
 
 const PORT = Number(process.env.PORT ?? 4000);
 const CORS_ORIGIN = process.env.CORS_ORIGIN ?? "*";
@@ -60,6 +62,11 @@ const allowedOrigins = buildAllowedOrigins(CORS_ORIGIN);
 const allowAllOrigins = allowedOrigins.has("*");
 
 const app = express();
+
+// OPTIMIZATIONS: Compression + Performance Monitoring
+app.use(compression());
+app.use(expressLatencyMiddleware());
+
 app.use(express.json());
 app.use(
   cors({
@@ -531,4 +538,3 @@ server.listen(PORT, () => {
   // eslint-disable-next-line no-console
   console.log(`Backend listening on :${PORT}`);
 });
-
