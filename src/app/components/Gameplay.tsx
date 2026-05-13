@@ -247,6 +247,33 @@ export function Gameplay() {
     }
   }, [state?.status, state?.round?.activePlayerId, state?.round?.ended, state?.round?.opponent?.totalVisible, state?.matchId]);
 
+  // AI Bot Pre-Game Ready Automation: Ensure the bot signs off on the Neural Sync check
+  useEffect(() => {
+    if (state?.status === "WAITING" && state?.opponent?.playerId === "bot_ai_neural") {
+      if (!state.readyStatus?.bot_ai_neural) {
+        const timer = setTimeout(() => {
+          import("../../lib/backend").then(({ apiSendCommand }) => {
+            apiSendCommand(state.matchId, {
+              matchId: state.matchId,
+              playerId: "bot_ai_neural",
+              commandId: `ready_bot_${Date.now()}`,
+              type: "READY",
+            }).catch(() => {});
+          });
+        }, 1000);
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [state?.status, state?.opponent?.playerId, state?.readyStatus, state?.matchId]);
+
+  // Escape valve: if the Neural Sync termination countdown fully reaches 0s, seamlessly exit back to Main Hub
+  useEffect(() => {
+    if (readyTimeLeft === 0 && state?.status === "WAITING") {
+      const timer = setTimeout(() => navigate("/"), 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [readyTimeLeft, state?.status, navigate]);
+
   useEffect(() => {
     if (state?.status === "FINISHED") {
       // If the match was terminated before the first round ever started, the authentication timeout expired.
