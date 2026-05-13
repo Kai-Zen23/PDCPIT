@@ -20,20 +20,43 @@ export function NameEntryMatchmaking() {
   const connectTimerRef = useRef<number | null>(null);
 
   // After we enqueue (and save session), we can use the same hook as Gameplay/Waiting.
-  const { state, error } = useMatchConnection();
+  const { state, error, assignAiBotFallback } = useMatchConnection();
+
+  const [waitingElapsed, setWaitingElapsed] = useState(0);
+
+  // Fallback timer: automatically inject AI Bot profile if waiting in searching queue hits 60 seconds
+  useEffect(() => {
+    if (matchState === "searching" && !transitionedRef.current) {
+      const interval = setInterval(() => {
+        setWaitingElapsed((prev) => {
+          if (prev >= 60) {
+            clearInterval(interval);
+            if (assignAiBotFallback) assignAiBotFallback();
+            return 60;
+          }
+          return prev + 1;
+        });
+      }, 1000);
+      return () => {
+        clearInterval(interval);
+        setWaitingElapsed(0);
+      };
+    } else {
+      setWaitingElapsed(0);
+    }
+  }, [matchState, assignAiBotFallback]);
 
   useEffect(() => {
     if (matchState !== "searching") return;
-    if (!state) return;
 
     // When opponent exists, transition to found/connecting then go to game.
-    if (state.opponent && !transitionedRef.current) {
+    if (state?.opponent && !transitionedRef.current) {
       transitionedRef.current = true;
       setMatchState("found");
       foundTimerRef.current = window.setTimeout(() => setMatchState("connecting"), 900);
       connectTimerRef.current = window.setTimeout(() => navigate("/match-found"), 1800);
     }
-  }, [navigate, state, matchState]);
+  }, [navigate, state?.opponent, matchState]);
 
   useEffect(() => {
     if (matchState !== "searching") return;
@@ -45,9 +68,6 @@ export function NameEntryMatchmaking() {
       try {
         const polledState = await apiGetMatchState(session.matchId, session.playerId);
         if (polledState.opponent && !transitionedRef.current) {
-          // Polling found the match! The socket might have missed it.
-          // Since useMatchConnection is also running, it will eventually sync,
-          // but we can trigger the transition here immediately.
           transitionedRef.current = true;
           setMatchState("found");
           foundTimerRef.current = window.setTimeout(() => setMatchState("connecting"), 900);
@@ -337,9 +357,18 @@ export function NameEntryMatchmaking() {
                 {status && <p className="text-[#B0B0B0] text-sm">{status}</p>}
                 {error?.message && <p className="text-[#D62828] text-sm mt-2">{error.message}</p>}
 
-                <p className="text-[#4CC9F0] text-sm" style={{ fontFamily: 'Orbitron, sans-serif' }}>
+                <p className="text-[#4CC9F0] text-sm mb-4" style={{ fontFamily: 'Orbitron, sans-serif' }}>
                   Playing as: {playerName}
                 </p>
+
+                {matchState === "searching" && (
+                  <div className="flex items-center justify-center gap-2 px-4 py-2 bg-[#1E1E1E] rounded-full border border-white/5 shadow-inner max-w-xs mx-auto">
+                    <span className="w-2 h-2 rounded-full bg-[#4CC9F0] animate-ping" />
+                    <span className="text-[10px] text-[#4CC9F0] font-orbitron tracking-widest">
+                      AI FALLBACK IN: <strong className="text-white font-bold">{60 - waitingElapsed}S</strong>
+                    </span>
+                  </div>
+                )}
 
                 {/* Animated dots */}
                 <div className="flex justify-center gap-2 mt-6">
