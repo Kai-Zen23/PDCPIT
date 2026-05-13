@@ -29,7 +29,7 @@ export function Gameplay() {
   const navigate = useNavigate();
   const { 
     state: liveState, events, error, isYourTurn, opponentPresence,
-    sendDraw, sendStand, sendNextRound, sendReady, usePowerUp, claimTechnicalVictory 
+    sendDraw, sendStand, sendNextRound, sendReady, usePowerUp, claimTechnicalVictory, assignAiBotFallback 
   } = useMatchConnection();
   
   // Latched state for round results
@@ -179,6 +179,52 @@ export function Gameplay() {
     return () => clearInterval(interval);
   }, [graceStart]);
 
+  // Matchmaking fallback: Track queue waiting elapsed seconds up to 60
+  const [waitingElapsed, setWaitingElapsed] = useState(0);
+
+  useEffect(() => {
+    // If waiting alone in queue
+    if (state?.status === "WAITING" && (!state.opponent || state.playerOrder?.length === 1)) {
+      const interval = setInterval(() => {
+        setWaitingElapsed((prev) => {
+          if (prev >= 60) {
+            clearInterval(interval);
+            assignAiBotFallback();
+            return 60;
+          }
+          return prev + 1;
+        });
+      }, 1000);
+      return () => {
+        clearInterval(interval);
+        setWaitingElapsed(0);
+      };
+    } else {
+      setWaitingElapsed(0);
+    }
+  }, [state?.status, state?.opponent, state?.playerOrder?.length]);
+
+  // AI Bot Heuristic Auto-Play Engine proxy loop
+  useEffect(() => {
+    if (state?.status === "IN_PROGRESS" && state?.round?.activePlayerId === "bot_ai_neural" && !state.round.ended) {
+      const timer = setTimeout(() => {
+        import("../../lib/backend").then(({ apiSendCommand }) => {
+          // Heuristic strategy: if visible total < 16, DRAW; else STAND
+          const oppTotal = state.round?.opponent?.totalVisible ?? 0;
+          const isRisky = oppTotal >= 16;
+          apiSendCommand(state.id, {
+            matchId: state.id,
+            playerId: "bot_ai_neural",
+            commandId: `bot_${Date.now()}`,
+            type: isRisky ? "STAND" : "DRAW",
+          }).catch(() => {});
+        });
+      }, 1400); // 1.4s card pondering delay
+
+      return () => clearTimeout(timer);
+    }
+  }, [state?.status, state?.round?.activePlayerId, state?.round?.ended, state?.round?.opponent?.totalVisible, state?.id]);
+
   useEffect(() => {
     if (state?.status === "FINISHED") {
       // If the match was terminated before the first round ever started, the authentication timeout expired.
@@ -295,7 +341,15 @@ export function Gameplay() {
           <Search className="absolute inset-0 m-auto w-8 h-8 text-[#9D4EDD] animate-pulse" />
         </div>
         <h1 className="text-2xl mb-2 tracking-[0.3em]">LOCATING OPPONENT</h1>
-        <p className="text-[#B0B0B0] text-xs uppercase tracking-widest opacity-60">Scanning Neural action stream...</p>
+        <p className="text-[#B0B0B0] text-xs uppercase tracking-widest opacity-60 mb-4">Scanning Neural action stream...</p>
+        {(!state.opponent || state.playerOrder?.length === 1) && (
+          <div className="flex items-center gap-2 px-4 py-2 bg-[#1E1E1E] rounded-full border border-white/5 shadow-inner">
+            <span className="w-2 h-2 rounded-full bg-[#4CC9F0] animate-ping" />
+            <span className="text-[10px] text-[#4CC9F0] font-orbitron tracking-widest">
+              AI FALLBACK IN: <strong className="text-white font-bold">{60 - waitingElapsed}S</strong>
+            </span>
+          </div>
+        )}
       </div>
     );
   }

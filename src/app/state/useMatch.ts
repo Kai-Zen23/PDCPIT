@@ -221,6 +221,50 @@ export function useMatchConnection() {
     }
   }
 
+  async function assignAiBotFallback() {
+    if (!session) return;
+    try {
+      const { data } = await supabase.from("matches").select("state, player_count").eq("id", session.matchId).single();
+      if (data && data.state && data.player_count === 1) {
+        const rawState: MatchState = data.state;
+        const botId = "bot_ai_neural";
+        const botNames = [
+          "Alex", "Jordan", "Taylor", "Morgan", "Sam", 
+          "Chris", "Jamie", "Casey", "Riley", "Avery",
+          "ShadowWeaver", "NeonKnight", "CyberSamurai", "NovaPulse", "Spectre21"
+        ];
+        const randomName = botNames[Math.floor(Math.random() * botNames.length)];
+
+        rawState.players[botId] = {
+          id: botId,
+          name: randomName,
+          lives: 3,
+          powerUps: [],
+        };
+        rawState.playerOrder.push(botId);
+        if (!rawState.readyStatus) rawState.readyStatus = {};
+        rawState.readyStatus[botId] = true;
+        rawState.readyStatus[session.playerId] = true;
+
+        import("../../../supabase/functions/_shared/engine").then(async ({ startMatch }) => {
+          startMatch(rawState);
+          await supabase
+            .from("matches")
+            .update({
+              state: rawState,
+              player_count: 2,
+              status: "IN_PROGRESS",
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", session.matchId)
+            .eq("player_count", 1);
+        });
+      }
+    } catch (err) {
+      console.warn("AI Fallback assignment failed:", err);
+    }
+  }
+
   return {
     session,
     state,
@@ -234,5 +278,6 @@ export function useMatchConnection() {
     sendReady: () => sendCommand("READY"),
     usePowerUp,
     claimTechnicalVictory,
+    assignAiBotFallback,
   };
 }
