@@ -60,9 +60,12 @@ export function useMatchConnection() {
                 return updatedView;
               });
 
-              // Synthesize frontend match events reactive stream from status transitions
+              // Synthesize frontend match events reactive stream cleanly without duplicate layout trashing loops
               if (rawState.status === "IN_PROGRESS" && rawState.round?.roundNumber === 1) {
-                setEvents((evs) => [{ type: "MATCH:STARTED", matchId: rawState.id }, ...evs].slice(0, 50));
+                setEvents((evs) => {
+                  if (evs.some(e => e.type === "MATCH:STARTED")) return evs;
+                  return [{ type: "MATCH:STARTED", matchId: rawState.id }, ...evs].slice(0, 50);
+                });
               }
             } catch (err) {
               console.warn("View projection update failed:", err);

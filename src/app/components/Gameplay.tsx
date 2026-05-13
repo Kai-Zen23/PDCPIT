@@ -126,18 +126,7 @@ export function Gameplay() {
     return () => clearInterval(interval);
   }, [state?.readyCountdownExpiresAt, state?.status, clockOffset]);
 
-  useEffect(() => {
-    if (!state?.round || state.round.ended) return;
-
-    const interval = setInterval(() => {
-      const adjustedNow = Date.now() + clockOffset;
-      const elapsed = adjustedNow - state.round.turnStartedAt;
-      const remaining = Math.max(0, 15 - Math.floor(elapsed / 1000));
-      setLeft(remaining);
-    }, 200);
-
-    return () => clearInterval(interval);
-  }, [state?.round?.turnStartedAt, state?.round?.ended, clockOffset]);
+  // Note: Turn timers omitted per game rules to enable uninhibited strategic comeback pondering.
 
   useEffect(() => {
     if (state?.status === "FINISHED") {
@@ -396,23 +385,19 @@ export function Gameplay() {
                 </div>
               </div>
 
-              {/* Timer */}
+              {/* Sync Status Indicator */}
               <div className="flex flex-col items-center">
                 <div className="flex items-center gap-2 mb-1">
-                  <div className={`w-1.5 h-1.5 rounded-full ${isYourTurn ? 'bg-[#2ECC71]' : 'bg-[#B0B0B0]'} animate-pulse`} />
+                  <div className={`w-2 h-2 rounded-full ${isYourTurn ? 'bg-[#2ECC71] shadow-[0_0_10px_#2ECC71]' : 'bg-[#4CC9F0] shadow-[0_0_10px_#4CC9F0]'} animate-pulse`} />
                   <span className="text-[10px] text-[#B0B0B0] uppercase tracking-[0.2em]">
-                    {isYourTurn ? 'Your Sync' : 'Opponent Sync'}
+                    {isYourTurn ? 'Your Phase Active' : 'Opponent Phase'}
                   </span>
                 </div>
                 <div 
-                  className={`text-5xl font-orbitron leading-none transition-colors ${timeLeft <= 5 ? 'text-[#D62828] animate-pulse' : 'text-[#4CC9F0]'}`}
-                  style={{ 
-                    textShadow: timeLeft <= 5 
-                      ? '0 0 30px rgba(214, 40, 40, 0.6)' 
-                      : '0 0 30px rgba(76, 201, 240, 0.4)' 
-                  }}
+                  className="text-5xl font-orbitron leading-none text-[#4CC9F0]"
+                  style={{ textShadow: '0 0 30px rgba(76, 201, 240, 0.4)' }}
                 >
-                  00:{timeLeft.toString().padStart(2, '0')}
+                  ∞
                 </div>
               </div>
 
