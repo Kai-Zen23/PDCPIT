@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { motion, AnimatePresence } from "motion/react";
 import { Users, Wifi, ArrowRight } from "lucide-react";
-import { apiEnqueueMatchmaking, apiGetMatchState } from "../../lib/backend";
+import { apiEnqueueMatchmaking, apiGetMatchState, apiCancelMatchmaking } from "../../lib/backend";
 import { clearSession, loadSession, saveSession } from "../../lib/session";
 import { useMatchConnection } from "../state/useMatch";
 
@@ -115,6 +115,10 @@ export function NameEntryMatchmaking() {
   };
 
   const handleCancel = () => {
+    const session = loadSession();
+    if (session?.matchId) {
+      apiCancelMatchmaking(session.matchId);
+    }
     setMatchState("name-entry");
     clearSession();
     navigate('/');

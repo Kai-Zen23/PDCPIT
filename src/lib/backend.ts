@@ -113,6 +113,13 @@ export async function apiEnqueueMatchmaking(
   return data;
 }
 
+export async function apiCancelMatchmaking(matchId: string): Promise<void> {
+  const { error } = await supabase.functions.invoke("matchmaking", {
+    body: { action: "cancel", matchId },
+  });
+  if (error) console.warn("Queue cancellation non-fatal warning:", error);
+}
+
 export async function apiGetMatchState(matchId: string, playerId: string): Promise<MatchView> {
   const { data, error } = await supabase
     .from("matches")

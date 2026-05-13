@@ -15,7 +15,21 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const { playerName } = await req.json();
+    const { playerName, isPrivate, matchId, action } = await req.json();
+
+    const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
+    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
+    // Scenario A: Queue Cancellation
+    if (action === "cancel" && matchId) {
+      await supabase.from("matches").delete().eq("id", matchId).eq("status", "WAITING");
+      return new Response(JSON.stringify({ success: true }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        status: 200,
+      });
+    }
+
     if (!playerName || typeof playerName !== "string") {
       return new Response(JSON.stringify({ error: "Invalid player name" }), {
         status: 400,
@@ -23,33 +37,26 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Initialize Supabase Client with Admin access to bypass RLS for queues
-    const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
-    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+    // Scenario B: Explicitly joining a target Private/Public Room by matchId
+    if (matchId && action !== "cancel") {
+      const { data: targetMatch, error: fetchErr } = await supabase
+        .from("matches")
+        .select("*")
+        .eq("id", matchId)
+        .eq("status", "WAITING")
+        .single();
 
-    // 1. Check if there's any WAITING match with 1 player
-    // We order by updated_at to ensure FIFO queue ordering
-    const { data: waitingMatches, error: fetchErr } = await supabase
-      .from("matches")
-      .select("*")
-      .eq("status", "WAITING")
-      .eq("is_private", false)
-      .eq("player_count", 1)
-      .order("updated_at", { ascending: true })
-      .limit(1);
+      if (fetchErr || !targetMatch || targetMatch.player_count !== 1) {
+        return new Response(JSON.stringify({ error: "Room is full, expired, or does not exist" }), {
+          status: 404,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
 
-    if (fetchErr) throw fetchErr;
-
-    if (waitingMatches && waitingMatches.length > 0) {
-      const matchRecord = waitingMatches[0];
-      const matchState: MatchState = matchRecord.state;
+      const matchState: MatchState = targetMatch.state;
       const playerId = nanoid(10);
-
-      // Mutate state using engine logic
       addSecondPlayer(matchState, playerId, playerName.trim());
 
-      // Optimistic concurrency control using match state versioning / exact match status check
       const { data: updated, error: updateErr } = await supabase
         .from("matches")
         .update({
@@ -57,37 +64,88 @@ Deno.serve(async (req) => {
           player_count: 2,
           updated_at: new Date().toISOString(),
         })
-        .eq("id", matchRecord.id)
-        .eq("player_count", 1) // Ensures no secondary player raced us
+        .eq("id", matchId)
+        .eq("player_count", 1)
         .select()
         .single();
 
-      if (!updateErr && updated) {
-        // Success: Joined existing match
-        return new Response(
-          JSON.stringify({
-            matchId: matchRecord.id,
-            playerId,
-            role: "JOINED",
-          }),
-          {
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
-            status: 200,
-          },
-        );
+      if (updateErr || !updated) {
+        return new Response(JSON.stringify({ error: "Failed to join room due to conflict" }), {
+          status: 409,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
       }
-      // If updateErr occurred, it means another player raced us. Fall through to create a new match.
+
+      return new Response(
+        JSON.stringify({
+          matchId,
+          playerId,
+          role: "JOINED",
+        }),
+        {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+          status: 200,
+        },
+      );
     }
 
-    // 2. Create a new match if queue was empty or race condition lost
-    const matchId = nanoid(10);
-    const playerId = nanoid(10);
-    const matchState = createMatch(matchId, playerId, playerName.trim(), false);
+    // Scenario C: General Matchmaking - Check public queue only if this request is NOT marked private
+    if (!isPrivate) {
+      const { data: waitingMatches, error: fetchErr } = await supabase
+        .from("matches")
+        .select("*")
+        .eq("status", "WAITING")
+        .eq("is_private", false)
+        .eq("player_count", 1)
+        .order("updated_at", { ascending: true })
+        .limit(1);
+
+      if (fetchErr) throw fetchErr;
+
+      if (waitingMatches && waitingMatches.length > 0) {
+        const matchRecord = waitingMatches[0];
+        const matchState: MatchState = matchRecord.state;
+        const playerId = nanoid(10);
+
+        addSecondPlayer(matchState, playerId, playerName.trim());
+
+        const { data: updated, error: updateErr } = await supabase
+          .from("matches")
+          .update({
+            state: matchState,
+            player_count: 2,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", matchRecord.id)
+          .eq("player_count", 1)
+          .select()
+          .single();
+
+        if (!updateErr && updated) {
+          return new Response(
+            JSON.stringify({
+              matchId: matchRecord.id,
+              playerId,
+              role: "JOINED",
+            }),
+            {
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+              status: 200,
+            },
+          );
+        }
+      }
+    }
+
+    // Create a new match record (Private or Public depending on the isPrivate flag)
+    const newMatchId = nanoid(10);
+    const newPlayerId = nanoid(10);
+    const matchState = createMatch(newMatchId, newPlayerId, playerName.trim(), Boolean(isPrivate));
 
     const { error: insertErr } = await supabase.from("matches").insert({
-      id: matchId,
+      id: newMatchId,
       status: "WAITING",
-      is_private: false,
+      is_private: Boolean(isPrivate),
       player_count: 1,
       state: matchState,
     });
@@ -96,8 +154,8 @@ Deno.serve(async (req) => {
 
     return new Response(
       JSON.stringify({
-        matchId,
-        playerId,
+        matchId: newMatchId,
+        playerId: newPlayerId,
         role: "CREATED",
       }),
       {
