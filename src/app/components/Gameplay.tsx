@@ -68,6 +68,22 @@ export function Gameplay() {
     }
   }, [liveState?.readyStatus, liveState?.you?.playerId]);
 
+  // Prevent multiple rapid clicks per turn: lock action execution immediately after button dispatch
+  const [isActionPending, setIsActionPending] = useState(false);
+
+  // Automatically release action lock when it's no longer our turn, or when game round advances/updates
+  useEffect(() => {
+    setIsActionPending(false);
+  }, [liveState?.round?.activePlayerId, liveState?.round?.you?.hand?.length, liveState?.round?.you?.stood]);
+
+  // Safety valve: release action lock after 1.5 seconds if network connection lags
+  useEffect(() => {
+    if (isActionPending) {
+      const timer = setTimeout(() => setIsActionPending(false), 1500);
+      return () => clearTimeout(timer);
+    }
+  }, [isActionPending]);
+
   // Update clock offset whenever we get a fresh server timestamp
   useEffect(() => {
     if (liveState?.serverTime) {
@@ -481,6 +497,8 @@ export function Gameplay() {
                     }}
                     onClick={() => {
                       if (isTargetable) {
+                        if (isActionPending) return;
+                        setIsActionPending(true);
                         usePowerUp("card_destroyer", { targetCardIndex: index });
                         setPendingPowerUp(null);
                       }
@@ -663,6 +681,8 @@ export function Gameplay() {
                     }}
                     onClick={() => {
                       if (isTargetable) {
+                        if (isActionPending) return;
+                        setIsActionPending(true);
                         usePowerUp("lucky_replace", { discardIndex: index });
                         setPendingPowerUp(null);
                       }
@@ -690,12 +710,16 @@ export function Gameplay() {
               <motion.button
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
-                onClick={sendDraw}
-                disabled={!isYourTurn || round?.you?.stood}
-                className="px-6 py-4 bg-gradient-to-r from-[#9D4EDD] to-[#8B3DC7] rounded-xl text-[#F5F5F5] text-lg tracking-wide disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                onClick={() => {
+                  if (isActionPending || !isYourTurn || round?.you?.stood) return;
+                  setIsActionPending(true);
+                  sendDraw();
+                }}
+                disabled={isActionPending || !isYourTurn || round?.you?.stood}
+                className="px-6 py-4 bg-gradient-to-r from-[#9D4EDD] to-[#8B3DC7] rounded-xl text-[#F5F5F5] text-lg tracking-wide disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-all"
                 style={{
                   fontFamily: 'Orbitron, sans-serif',
-                  boxShadow: isYourTurn ? '0 0 30px rgba(157, 78, 221, 0.6)' : 'none'
+                  boxShadow: isYourTurn && !isActionPending ? '0 0 30px rgba(157, 78, 221, 0.6)' : 'none'
                 }}
               >
                 <Plus className="w-5 h-5" />
@@ -705,9 +729,13 @@ export function Gameplay() {
               <motion.button
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
-                onClick={sendStand}
-                disabled={!isYourTurn || round?.you?.stood}
-                className="px-6 py-4 bg-[#1E1E1E] border-2 border-[#B0B0B0]/50 rounded-xl text-[#F5F5F5] text-lg tracking-wide disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 hover:border-[#B0B0B0]"
+                onClick={() => {
+                  if (isActionPending || !isYourTurn || round?.you?.stood) return;
+                  setIsActionPending(true);
+                  sendStand();
+                }}
+                disabled={isActionPending || !isYourTurn || round?.you?.stood}
+                className="px-6 py-4 bg-[#1E1E1E] border-2 border-[#B0B0B0]/50 rounded-xl text-[#F5F5F5] text-lg tracking-wide disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 hover:border-[#B0B0B0] transition-all"
                 style={{ fontFamily: 'Orbitron, sans-serif' }}
               >
                 <Minus className="w-5 h-5" />
@@ -737,14 +765,16 @@ export function Gameplay() {
                               whileHover={{ scale: 1.05 }}
                               whileTap={{ scale: 0.95 }}
                               onClick={() => {
+                                if (isActionPending || !isYourTurn || round?.you?.powerUpUsedThisRound) return;
                                 if (needsTargeting) {
                                   if (isPending) setPendingPowerUp(null);
                                   else setPendingPowerUp({ type: pu, indexInYourPowerUps: i });
                                 } else {
+                                  setIsActionPending(true);
                                   usePowerUp(pu);
                                 }
                               }}
-                              disabled={!isYourTurn || round?.you?.powerUpUsedThisRound}
+                              disabled={isActionPending || !isYourTurn || round?.you?.powerUpUsedThisRound}
                               className={`w-full bg-[#121212] border rounded-lg p-3 flex flex-col items-center gap-2 transition-all disabled:opacity-30 disabled:cursor-not-allowed ${
                                 isPending 
                                   ? 'border-[#9D4EDD] bg-[#9D4EDD]/20 animate-pulse' 
