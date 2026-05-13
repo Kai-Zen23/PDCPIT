@@ -195,8 +195,13 @@ export async function getMatch(matchId: string): Promise<MatchRecord | undefined
     socketsByPlayer.set(pId, sId);
   }
 
+  const match: MatchState = JSON.parse(matchData);
+  for (const p of Object.values(match.players)) {
+    if (p && !Array.isArray(p.powerUps)) p.powerUps = [];
+  }
+
   return {
-    match: JSON.parse(matchData),
+    match,
     socketsByPlayer,
   };
 }
@@ -229,6 +234,10 @@ export async function joinExistingMatch(
   }
 
   const match: MatchState = JSON.parse(updatedJsonStr);
+  for (const p of Object.values(match.players)) {
+    if (p && !Array.isArray(p.powerUps)) p.powerUps = [];
+  }
+
   const socketsData = await redis.hgetall(SOCKETS_KEY(matchId));
   const socketsByPlayer = new Map<string, string>();
   for (const [pId, sId] of Object.entries(socketsData)) {

@@ -31,13 +31,13 @@ export function viewForPlayer(match: MatchState, playerId: string): MatchViewFor
     winnerPlayerId: match.winnerPlayerId,
     readyStatus: { ...match.readyStatus },
     readyCountdownExpiresAt: match.readyCountdownExpiresAt,
-    you: { playerId, name: you.name, lives: you.lives, powerUps: [...you.powerUps] },
+    you: { playerId, name: you.name, lives: you.lives, powerUps: Array.isArray(you.powerUps) ? [...you.powerUps] : [] },
     opponent: opp
       ? {
           playerId: opp.id,
           name: opp.name,
           lives: opp.lives,
-          powerUpsCount: opp.powerUps.length,
+          powerUpsCount: Array.isArray(opp.powerUps) ? opp.powerUps.length : 0,
         }
       : undefined,
   };
