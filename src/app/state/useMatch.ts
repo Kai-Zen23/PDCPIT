@@ -1,18 +1,15 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { nanoid } from "nanoid";
-import type { BackendPowerUp, BackendSocket, MatchEvent, MatchView } from "../../lib/backend";
-import { createBackendSocket } from "../../lib/backend";
+import type { BackendPowerUp, MatchEvent, MatchView } from "../../lib/backend";
 import { loadSession } from "../../lib/session";
+import { supabase } from "../../lib/supabase";
+import { viewForPlayer } from "../../../supabase/functions/_shared/view";
+import type { MatchState } from "../../../supabase/functions/_shared/types";
 
 type MatchError = { commandId?: string; message: string };
 
-let globalSocket: BackendSocket | null = null;
-
 export function disconnectGlobalSocket() {
-  if (globalSocket) {
-    globalSocket.disconnect();
-    globalSocket = null;
-  }
+  // Global socket unneeded in Supabase Realtime Channels paradigm
 }
 
 export function useMatchConnection() {
@@ -22,12 +19,11 @@ export function useMatchConnection() {
   const [error, setError] = useState<MatchError | null>(null);
 
   const youId = session?.playerId ?? "";
-
   const isYourTurn = !!(state?.round && state.round.activePlayerId === youId);
 
+  // 1. Initial HTTP Fetch
   useEffect(() => {
     if (session && !state) {
-      // Fetch initial state via HTTP to avoid waiting for WebSocket connect
       import("../../lib/backend").then(({ apiGetMatchState }) => {
         apiGetMatchState(session.matchId, session.playerId)
           .then((s) => setState((prev) => prev ? prev : s))
@@ -36,9 +32,52 @@ export function useMatchConnection() {
     }
   }, [session?.matchId, session?.playerId]);
 
-  // Resilient Synchronization Fallback: If match status remains WAITING (e.g. during authentication sync),
-  // proactively poll the backend state every 1.5 seconds to instantly catch state changes 
-  // bypassing potential socket packet drops across clustered horizontal scaling environments.
+  // 2. Supabase Realtime Postgres Broadcast Subscription
+  // Instant push synchronization over optimized HTTP2/WebSockets
+  useEffect(() => {
+    if (!session) return;
+
+    const channel = supabase
+      .channel(`realtime:match_${session.matchId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*", // Listen to INSERT and UPDATE
+          schema: "public",
+          table: "matches",
+          filter: `id=eq.${session.matchId}`,
+        },
+        (payload) => {
+          if (payload.new && payload.new.state) {
+            const rawState: MatchState = payload.new.state;
+            try {
+              const updatedView = viewForPlayer(rawState, session.playerId) as unknown as MatchView;
+              setState((prev) => {
+                // Preserve local optimistic ready status
+                if (prev?.status === "WAITING" && prev.you && prev.readyStatus?.[prev.you.playerId]) {
+                  updatedView.readyStatus[prev.you.playerId] = true;
+                }
+                return updatedView;
+              });
+
+              // Synthesize frontend match events reactive stream from status transitions
+              if (rawState.status === "IN_PROGRESS" && rawState.round?.roundNumber === 1) {
+                setEvents((evs) => [{ type: "MATCH:STARTED", matchId: rawState.id }, ...evs].slice(0, 50));
+              }
+            } catch (err) {
+              console.warn("View projection update failed:", err);
+            }
+          }
+        },
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [session?.matchId, session?.playerId]);
+
+  // 3. Resilient synchronization state polling fallback
   useEffect(() => {
     if (!session || state?.status === "IN_PROGRESS" || state?.status === "FINISHED") return;
 
@@ -48,7 +87,6 @@ export function useMatchConnection() {
           .then((s) => {
             setState((prev) => {
               if (!prev) return s;
-              // Preserve local optimistic ready status for yourself to prevent UI toggle loops
               if (prev.status === "WAITING" && prev.you && prev.readyStatus?.[prev.you.playerId]) {
                 s.readyStatus[prev.you.playerId] = true;
               }
@@ -65,75 +103,11 @@ export function useMatchConnection() {
     return () => clearInterval(interval);
   }, [session?.matchId, session?.playerId, state?.status]);
 
-
-  useEffect(() => {
-    if (!session) return;
-
-    if (!globalSocket) {
-      globalSocket = createBackendSocket();
-    }
-    const socket = globalSocket;
-
-    const onState = (s: MatchView) => {
-      setState((prev) => {
-        if (prev?.status === "WAITING" && prev.you && prev.readyStatus?.[prev.you.playerId]) {
-          s.readyStatus[prev.you.playerId] = true;
-        }
-        return s;
-      });
-    };
-    const onPatch = ({ patch }: { patch: { type: string; payload?: any }; stateHash: string }) => {
-      // Fast incremental differential evaluation
-      setState((prev) => {
-        if (!prev) return prev;
-        // Deep copy safely to allow smooth local patch projection updates
-        const updated = JSON.parse(JSON.stringify(prev)) as MatchView;
-        if (patch.type === "DRAW" && updated.opponent && updated.round?.activePlayerId === updated.opponent.playerId) {
-          // Increment opponent visual counter smoothly if differential packet indicates opponent move
-          updated.round.opponent?.hand.push({
-            id: `patch_${Date.now()}`,
-            visibility: "VISIBLE",
-            value: undefined
-          });
-        }
-        return updated;
-      });
-    };
-    const onEvent = (e: MatchEvent) => setEvents((prev) => [e, ...prev].slice(0, 50));
-    const onError = (e: MatchError) => setError(e);
-    const onConnect = () => {
-      socket.emit("match:join", { matchId: session.matchId, playerId: session.playerId });
-    };
-
-    socket.on("match:state", onState);
-    socket.on("match:patch", onPatch);
-    socket.on("match:event", onEvent);
-    socket.on("match:error", onError);
-    socket.on("connect", onConnect);
-
-    if (socket.connected) {
-      // If already connected, join immediately
-      onConnect();
-    } else {
-      socket.connect();
-    }
-
-    return () => {
-      socket.off("match:state", onState);
-      socket.off("match:patch", onPatch);
-      socket.off("match:event", onEvent);
-      socket.off("match:error", onError);
-      socket.off("connect", onConnect);
-      // We keep globalSocket connected to avoid disconnect/reconnect on navigation
-    };
-  }, [session?.matchId, session?.playerId]);
-
   function sendCommand(type: "DRAW" | "STAND" | "READY" | "NEXT_ROUND") {
-    if (!session || !globalSocket) return;
+    if (!session) return;
     setError(null);
-    
+
     // --- OPTIMISTIC UI STATE COMMIT ---
-    // Update local state reactive stores instantly without network roundtrip penalties
     setState((prev) => {
       if (!prev) return prev;
       const copy = JSON.parse(JSON.stringify(prev)) as typeof prev;
@@ -147,7 +121,7 @@ export function useMatchConnection() {
         copy.round.you.hand.push({
           id: `opt_${nanoid(4)}`,
           visibility: "VISIBLE",
-          value: undefined // Cryptographically masked until actual server response arrives
+          value: undefined,
         });
       } else if (type === "READY") {
         if (copy.you) {
@@ -164,23 +138,19 @@ export function useMatchConnection() {
       commandId: nanoid(10),
       type,
     };
-    
-    // Fire and forget via socket for latency advantage if connected
-    globalSocket.emit("round:command", payloadData);
-    
-    // GUARANTEED DELIVERY: Also send via REST to bypass any WebSocket proxy stickiness issues
+
+    // Invoke ultra-low latency Supabase Edge function directly
     import("../../lib/backend").then(({ apiSendCommand }) => {
-      apiSendCommand(session.matchId, payloadData).catch(err => {
-        console.warn("REST command fallback failed:", err);
+      apiSendCommand(session.matchId, payloadData).catch((err) => {
+        console.warn("Edge command invocation failed:", err);
       });
     });
   }
 
   function usePowerUp(powerUp: BackendPowerUp, payloadExtra: any = {}) {
-    if (!session || !globalSocket) return;
+    if (!session) return;
     setError(null);
-    
-    // Optimistically flag powerup usage to disable buttons instantly
+
     setState((prev) => {
       if (!prev) return prev;
       const copy = JSON.parse(JSON.stringify(prev)) as typeof prev;
@@ -198,12 +168,9 @@ export function useMatchConnection() {
       payload: { type: powerUp, ...payloadExtra },
     };
 
-    globalSocket.emit("round:command", payloadData);
-    
-    // GUARANTEED DELIVERY: Also send via REST
     import("../../lib/backend").then(({ apiSendCommand }) => {
-      apiSendCommand(session.matchId, payloadData).catch(err => {
-        console.warn("REST powerup fallback failed:", err);
+      apiSendCommand(session.matchId, payloadData).catch((err) => {
+        console.warn("Edge powerup invocation failed:", err);
       });
     });
   }
@@ -221,4 +188,3 @@ export function useMatchConnection() {
     usePowerUp,
   };
 }
-

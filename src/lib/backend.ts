@@ -1,4 +1,6 @@
-import { io, type Socket } from "socket.io-client";
+import { supabase } from "./supabase";
+import { viewForPlayer } from "../../supabase/functions/_shared/view";
+import type { MatchState } from "../../supabase/functions/_shared/types";
 
 export type BackendPowerUp =
   | "card_destroyer"
@@ -62,132 +64,71 @@ export type MatchEvent =
   | { type: "LIFE:LOST"; matchId: string; playerId: string; lives: number }
   | { type: "MATCH:ENDED"; matchId: string; winnerPlayerId: string };
 
-export type BackendSocket = Socket<
-  {
-    "match:join": (data: { matchId: string; playerId: string }) => void;
-    "round:command": (data: {
-      matchId: string;
-      commandId: string;
-      type: "DRAW" | "STAND" | "POWER_UP" | "READY" | "NEXT_ROUND";
-      payload?: unknown;
-    }) => void;
-  },
-  {
-    "match:state": (data: MatchView) => void;
-    "match:patch": (data: { patch: { type: string; payload?: any }; stateHash: string }) => void;
-    "match:event": (data: MatchEvent) => void;
-    "match:error": (data: { commandId?: string; message: string }) => void;
-  }
->;
+// Dummy Socket interface to keep React codebase fully typed during refactoring
+export type BackendSocket = {
+  connected: boolean;
+  connect: () => void;
+  disconnect: () => void;
+  emit: (ev: string, data: any) => void;
+  on: (ev: string, cb: any) => void;
+  off: (ev: string, cb: any) => void;
+};
 
-export function backendBaseUrl(): string {
-  // For local dev, backend runs on :4000.
-  // In production, set VITE_BACKEND_URL in Vercel env vars.
-  const raw = (import.meta.env.VITE_BACKEND_URL as string | undefined) ?? "http://localhost:4000";
-  return raw.trim().replace(/\/+$/, "");
+export function createBackendSocket(): BackendSocket {
+  return {
+    connected: true,
+    connect: () => {},
+    disconnect: () => {},
+    emit: () => {},
+    on: () => {},
+    off: () => {},
+  };
 }
 
+export function instrumentWebSocketLatency(): void {}
+
 export async function apiCreateMatch(playerName: string, isPrivate: boolean = false): Promise<{ matchId: string; playerId: string }> {
-  const res = await fetch(`${backendBaseUrl()}/api/matches`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ playerName, isPrivate }),
+  const { data, error } = await supabase.functions.invoke("matchmaking", {
+    body: { playerName, isPrivate },
   });
-  if (!res.ok) throw new Error(await res.text());
-  return await res.json();
+  if (error) throw new Error(error.message || "Failed to create match");
+  return data;
 }
 
 export async function apiJoinMatch(matchId: string, playerName: string): Promise<{ matchId: string; playerId: string }> {
-  const res = await fetch(`${backendBaseUrl()}/api/matches/${encodeURIComponent(matchId)}/join`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ playerName }),
+  const { data, error } = await supabase.functions.invoke("matchmaking", {
+    body: { playerName, matchId },
   });
-  if (!res.ok) throw new Error(await res.text());
-  return await res.json();
+  if (error) throw new Error(error.message || "Failed to join match");
+  return data;
 }
 
 export async function apiEnqueueMatchmaking(
   playerName: string,
 ): Promise<{ matchId: string; playerId: string; role: "CREATED" | "JOINED" }> {
-  const res = await fetch(`${backendBaseUrl()}/api/matchmaking/enqueue`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ playerName }),
+  const { data, error } = await supabase.functions.invoke("matchmaking", {
+    body: { playerName },
   });
-  if (!res.ok) throw new Error(await res.text());
-  return await res.json();
+  if (error) throw new Error(error.message || "Matchmaking failed");
+  return data;
 }
 
 export async function apiGetMatchState(matchId: string, playerId: string): Promise<MatchView> {
-  const res = await fetch(
-    `${backendBaseUrl()}/api/matches/${encodeURIComponent(matchId)}/state/${encodeURIComponent(playerId)}`,
-  );
-  if (!res.ok) throw new Error(await res.text());
-  return await res.json();
+  const { data, error } = await supabase
+    .from("matches")
+    .select("state")
+    .eq("id", matchId)
+    .single();
+
+  if (error || !data) throw new Error("Match projection fetch failed");
+  
+  const rawState: MatchState = data.state;
+  return viewForPlayer(rawState, playerId) as unknown as MatchView;
 }
 
 export async function apiSendCommand(matchId: string, payload: any): Promise<void> {
-  const res = await fetch(`${backendBaseUrl()}/api/matches/${encodeURIComponent(matchId)}/command`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(payload),
+  const { error } = await supabase.functions.invoke("game-action", {
+    body: payload,
   });
-  if (!res.ok) throw new Error(await res.text());
-}
-
-/**
- * Creates a highly optimized WebSocket connection with:
- * - WebSocket transport only (no polling fallback overhead)
- * - Optimized heartbeat intervals to reduce network traffic
- * - Automatic reconnection with exponential backoff
- * - Connection pooling awareness
- */
-export function createBackendSocket(): BackendSocket {
-  return io(backendBaseUrl(), {
-    transports: ["websocket"],
-    autoConnect: false,
-    reconnection: true,
-    reconnectionDelay: 1000,
-    reconnectionDelayMax: 5000,
-    reconnectionAttempts: 5,
-    // Optimized heartbeat: server sends ping every 25s, client waits 20s for pong
-    // This reduces network overhead while maintaining connection health
-    pingInterval: 25000,
-    pingTimeout: 20000,
-    // Enable compression for large payloads (especially state updates)
-    parser: undefined, // Use default efficient parser
-  }) as BackendSocket;
-}
-
-/**
- * Performance monitoring: measure and log WebSocket latency
- */
-export function instrumentWebSocketLatency(socket: BackendSocket): void {
-  let lastStateTime = Date.now();
-
-  socket.on("match:state", (data: MatchView) => {
-    const now = Date.now();
-    const latency = now - (data.serverTime || lastStateTime);
-    
-    // Log high-latency events for debugging
-    if (latency > 100) {
-      console.warn(`[WebSocket Latency] High latency detected: ${latency}ms`, data);
-    }
-
-    lastStateTime = now;
-  });
-
-  // Track connection events
-  socket.on("connect", () => {
-    console.log("[WebSocket] Connected");
-  });
-
-  socket.on("disconnect", (reason) => {
-    console.log(`[WebSocket] Disconnected: ${reason}`);
-  });
-
-  socket.on("connect_error", (error) => {
-    console.error("[WebSocket] Connection error:", error);
-  });
+  if (error) throw new Error(error.message || "Action invocation failed");
 }

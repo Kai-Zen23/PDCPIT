@@ -1,0 +1,110 @@
+import type { Card, CardView, MatchState, MatchViewForPlayer } from "./types.ts";
+
+function sumVisible(hand: Card[], revealAll: boolean, viewerIsOwner: boolean): number {
+  return hand.reduce((acc, c) => {
+    if (revealAll) return acc + c.value;
+    if (viewerIsOwner) return acc + c.value;
+    if (c.visibility === "VISIBLE") return acc + c.value;
+    return acc;
+  }, 0);
+}
+
+function toCardView(card: Card, revealAll: boolean, viewerIsOwner: boolean): CardView {
+  if (revealAll || viewerIsOwner || card.visibility === "VISIBLE") {
+    return { id: card.id, value: card.value, visibility: card.visibility };
+  }
+  return { id: card.id, hidden: true, visibility: card.visibility };
+}
+
+const viewCache = new WeakMap<MatchState, { matchId: string; views: Map<string, MatchViewForPlayer> }>();
+
+export function invalidateViewCache(match: MatchState): void {
+  viewCache.delete(match);
+}
+
+export function viewForPlayer(match: MatchState, playerId: string): MatchViewForPlayer {
+  let cache = viewCache.get(match);
+  if (cache && cache.matchId === match.id) {
+    const cached = cache.views.get(playerId);
+    if (cached) return cached;
+  }
+
+  const you = match.players[playerId];
+  if (!you) {
+    throw new Error("Not a match player.");
+  }
+  const opponentId = match.playerOrder.find((id) => id !== playerId);
+  const opp = opponentId ? match.players[opponentId] : undefined;
+
+  const base: MatchViewForPlayer = {
+    matchId: match.id,
+    status: match.status,
+    serverTime: Date.now(),
+    winnerPlayerId: match.winnerPlayerId,
+    readyStatus: { ...match.readyStatus },
+    readyCountdownExpiresAt: match.readyCountdownExpiresAt,
+    you: { playerId, name: you.name, lives: you.lives, powerUps: Array.isArray(you.powerUps) ? [...you.powerUps] : [] },
+    opponent: opp
+      ? {
+          playerId: opp.id,
+          name: opp.name,
+          lives: opp.lives,
+          powerUpsCount: Array.isArray(opp.powerUps) ? opp.powerUps.length : 0,
+        }
+      : undefined,
+  };
+
+  if (!match.round) {
+    if (!cache) {
+      viewCache.set(match, { matchId: match.id, views: new Map() });
+      cache = viewCache.get(match)!;
+    }
+    cache.views.set(playerId, base);
+    return base;
+  }
+
+  const round = match.round;
+  const yourRound = round.players[playerId];
+  const oppRound = opponentId ? round.players[opponentId] : undefined;
+  const revealAll = round.revealAll;
+
+  const result: MatchViewForPlayer = {
+    ...base,
+    round: {
+      roundNumber: round.roundNumber,
+      target: round.target,
+      activePlayerId: round.activePlayerId,
+      ended: round.ended,
+      winnerPlayerId: round.winnerPlayerId,
+      deckCount: round.deck.length,
+      revealAll,
+      turnStartedAt: round.turnStartedAt,
+      you: {
+        stood: yourRound.stood,
+        turnsTaken: yourRound.turnsTaken,
+        powerUpUsedThisRound: yourRound.powerUpUsedThisRound,
+        hand: yourRound.hand.map((c) => toCardView(c, revealAll, true)),
+        totalVisible: sumVisible(yourRound.hand, revealAll, true),
+        totalActual: sumVisible(yourRound.hand, true, true),
+        shielded: yourRound.shielded,
+      },
+      opponent: oppRound
+        ? {
+            stood: oppRound.stood,
+            turnsTaken: oppRound.turnsTaken,
+            powerUpUsedThisRound: oppRound.powerUpUsedThisRound,
+            hand: oppRound.hand.map((c) => toCardView(c, revealAll, false)),
+            totalVisible: sumVisible(oppRound.hand, revealAll, false),
+            shielded: oppRound.shielded,
+          }
+        : undefined,
+    },
+  };
+
+  if (!cache) {
+    viewCache.set(match, { matchId: match.id, views: new Map() });
+    cache = viewCache.get(match)!;
+  }
+  cache.views.set(playerId, result);
+  return result;
+}
