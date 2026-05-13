@@ -232,6 +232,14 @@ async function processNextCommand(matchId: string) {
   const q = matchQueues.get(matchId);
   if (!q || q.length === 0) return;
 
+  // Protect against concurrent multi-node state clobbering (Last-Write-Wins overwriting)
+  // while retaining deterministic sequentially buffered command structures per server instance
+  const lockAcquired = await acquireMatchLock(matchId, 2500);
+  if (!lockAcquired) {
+    setTimeout(() => processNextCommand(matchId), 40);
+    return;
+  }
+
   matchProcessing.add(matchId);
   const cmd = q.shift()!;
   const socket = cmd.socket;
@@ -275,7 +283,7 @@ async function processNextCommand(matchId: string) {
 
     for (const ev of events) io.to(room(matchId)).emit("match:event", ev);
 
-    // Optimized: Direct database serialization without lock acquisition overhead
+    // Optimized: Direct database serialization
     await saveRecord(record);
     await maybeAdvanceAfterRound(record);
     await emitState(matchId, record, { type, payload });
@@ -285,6 +293,7 @@ async function processNextCommand(matchId: string) {
     const commandId = parsed.success ? parsed.data.commandId : undefined;
     socket.emit("match:error", { commandId, message: e instanceof Error ? e.message : "Command failed." });
   } finally {
+    await releaseMatchLock(matchId);
     matchProcessing.delete(matchId);
     // Process next action in buffer synchronously via event loop drain
     if (q.length > 0) {
