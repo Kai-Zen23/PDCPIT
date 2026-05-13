@@ -262,6 +262,7 @@ export async function joinExistingMatch(
   }
 
   const match: MatchState = JSON.parse(updatedJsonStr);
+  invalidateViewCache(match);
   for (const p of Object.values(match.players)) {
     if (p && !Array.isArray(p.powerUps)) p.powerUps = [];
   }

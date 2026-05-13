@@ -47,8 +47,12 @@ export function useMatchConnection() {
         apiGetMatchState(session.matchId, session.playerId)
           .then((s) => {
             setState((prev) => {
-              // If server transitioned, or we have updated ready statuses, sync up perfectly
-              if (!prev || s.status !== prev.status || JSON.stringify(s.readyStatus) !== JSON.stringify(prev.readyStatus)) {
+              if (!prev) return s;
+              // Preserve local optimistic ready status for yourself to prevent UI toggle loops
+              if (prev.status === "WAITING" && prev.you && prev.readyStatus?.[prev.you.playerId]) {
+                s.readyStatus[prev.you.playerId] = true;
+              }
+              if (s.status !== prev.status || JSON.stringify(s.readyStatus) !== JSON.stringify(prev.readyStatus)) {
                 return s;
               }
               return prev;
@@ -70,7 +74,14 @@ export function useMatchConnection() {
     }
     const socket = globalSocket;
 
-    const onState = (s: MatchView) => setState(s);
+    const onState = (s: MatchView) => {
+      setState((prev) => {
+        if (prev?.status === "WAITING" && prev.you && prev.readyStatus?.[prev.you.playerId]) {
+          s.readyStatus[prev.you.playerId] = true;
+        }
+        return s;
+      });
+    };
     const onPatch = ({ patch }: { patch: { type: string; payload?: any }; stateHash: string }) => {
       // Fast incremental differential evaluation
       setState((prev) => {

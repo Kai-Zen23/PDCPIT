@@ -371,9 +371,9 @@ setInterval(async () => {
           const record = await getMatch(matchId);
           if (!record || record.match.status !== "WAITING") return;
           
-          // If single player public match stalled for > 60 seconds
+          // If single player public match stalled for > 6 seconds
           if (record.match.playerOrder.length === 1 && !record.match.isPrivate) {
-            if (now - record.match.createdAt > 60000) {
+            if (now - record.match.createdAt > 6000) {
               console.log(`[AI Bot] Triggering autonomous AI Bot insertion for stale queue match: ${matchId}`);
               const result = await injectAiIntoMatch(matchId);
               if (result) {

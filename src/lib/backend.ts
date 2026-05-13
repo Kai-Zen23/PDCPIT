@@ -18,6 +18,8 @@ export type MatchView = {
   matchId: string;
   status: "WAITING" | "IN_PROGRESS" | "FINISHED";
   serverTime: number;
+  readyStatus: Record<string, boolean>;
+  readyCountdownExpiresAt: number | null;
   you: { playerId: string; name: string; lives: number; powerUps: BackendPowerUp[] };
   opponent?: { playerId: string; name: string; lives: number; powerUpsCount: number };
   round?: {
