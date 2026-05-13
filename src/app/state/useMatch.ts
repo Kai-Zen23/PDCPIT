@@ -17,6 +17,7 @@ export function useMatchConnection() {
   const [state, setState] = useState<MatchView | null>(null);
   const [events, setEvents] = useState<MatchEvent[]>([]);
   const [error, setError] = useState<MatchError | null>(null);
+  const [opponentPresence, setOpponentPresence] = useState(true);
 
   const youId = session?.playerId ?? "";
   const isYourTurn = !!(state?.round && state.round.activePlayerId === youId);
@@ -38,7 +39,19 @@ export function useMatchConnection() {
     if (!session) return;
 
     const channel = supabase
-      .channel(`realtime:match_${session.matchId}`)
+      .channel(`realtime:match_${session.matchId}`, {
+        config: {
+          presence: {
+            key: session.playerId,
+          },
+        },
+      })
+      .on("presence", { event: "sync" }, () => {
+        const pState = channel.presenceState();
+        // If more than 1 user key is registered in presence state, opponent is verified present
+        // Or if game is waiting, presence allows smooth UI readiness
+        setOpponentPresence(Object.keys(pState).length > 1);
+      })
       .on(
         "postgres_changes",
         {
@@ -63,7 +76,7 @@ export function useMatchConnection() {
               // Synthesize frontend match events reactive stream cleanly without duplicate layout trashing loops
               if (rawState.status === "IN_PROGRESS" && rawState.round?.roundNumber === 1) {
                 setEvents((evs) => {
-                  if (evs.some(e => e.type === "MATCH:STARTED")) return evs;
+                  if (evs.some((e) => e.type === "MATCH:STARTED")) return evs;
                   return [{ type: "MATCH:STARTED", matchId: rawState.id }, ...evs].slice(0, 50);
                 });
               }
@@ -73,7 +86,11 @@ export function useMatchConnection() {
           }
         },
       )
-      .subscribe();
+      .subscribe(async (status) => {
+        if (status === "SUBSCRIBED") {
+          await channel.track({ online_at: new Date().toISOString() });
+        }
+      });
 
     return () => {
       supabase.removeChannel(channel);
@@ -178,16 +195,44 @@ export function useMatchConnection() {
     });
   }
 
+  async function claimTechnicalVictory() {
+    if (!session) return;
+    try {
+      const { data } = await supabase.from("matches").select("state").eq("id", session.matchId).single();
+      if (data && data.state) {
+        const rawState: MatchState = data.state;
+        rawState.status = "FINISHED";
+        rawState.winnerPlayerId = session.playerId;
+        if (rawState.round) {
+          rawState.round.ended = true;
+          rawState.round.winnerPlayerId = session.playerId;
+        }
+        await supabase
+          .from("matches")
+          .update({
+            state: rawState,
+            status: "FINISHED",
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", session.matchId);
+      }
+    } catch (err) {
+      console.warn("Claim victory failed:", err);
+    }
+  }
+
   return {
     session,
     state,
     events,
     error,
     isYourTurn,
+    opponentPresence,
     sendDraw: () => sendCommand("DRAW"),
     sendStand: () => sendCommand("STAND"),
     sendNextRound: () => sendCommand("NEXT_ROUND"),
     sendReady: () => sendCommand("READY"),
     usePowerUp,
+    claimTechnicalVictory,
   };
 }

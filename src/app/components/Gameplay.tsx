@@ -28,8 +28,8 @@ const POWER_UP_CONFIG: Record<BackendPowerUp, { icon: any, label: string, descri
 export function Gameplay() {
   const navigate = useNavigate();
   const { 
-    state: liveState, events, error, isYourTurn, 
-    sendDraw, sendStand, sendNextRound, sendReady, usePowerUp 
+    state: liveState, events, error, isYourTurn, opponentPresence,
+    sendDraw, sendStand, sendNextRound, sendReady, usePowerUp, claimTechnicalVictory 
   } = useMatchConnection();
   
   // Latched state for round results
@@ -155,6 +155,29 @@ export function Gameplay() {
       return () => clearTimeout(timer);
     }
   }, [isYourTurn, timeLeft, state?.round?.ended, state?.round?.you?.stood]);
+
+  // Disconnection Grace Period state tracking
+  const [graceLeft, setGraceLeft] = useState<number | null>(null);
+  const [graceStart, setGraceStart] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (state?.status === "IN_PROGRESS" && opponentPresence === false) {
+      setGraceStart((prev) => prev || Date.now());
+    } else {
+      setGraceStart(null);
+      setGraceLeft(null);
+    }
+  }, [state?.status, opponentPresence]);
+
+  useEffect(() => {
+    if (!graceStart) return;
+    const interval = setInterval(() => {
+      const elapsed = Date.now() - graceStart;
+      const remaining = Math.max(0, 30 - Math.floor(elapsed / 1000));
+      setGraceLeft(remaining);
+    }, 200);
+    return () => clearInterval(interval);
+  }, [graceStart]);
 
   useEffect(() => {
     if (state?.status === "FINISHED") {
@@ -289,6 +312,54 @@ export function Gameplay() {
       </div>
 
       <div className="relative z-10 min-h-screen flex flex-col">
+        {/* Presence Severed Grace Recovery Banner */}
+        <AnimatePresence>
+          {graceLeft !== null && (
+            <motion.div
+              initial={{ opacity: 0, y: -100 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -100 }}
+              className="bg-gradient-to-r from-[#D62828]/90 via-[#9D4EDD]/90 to-[#D62828]/90 backdrop-blur-md border-b border-white/20 px-6 py-4 flex flex-col sm:flex-row items-center justify-between gap-4 z-50 shadow-[0_10px_40px_rgba(214,40,40,0.4)]"
+            >
+              <div className="flex items-center gap-3">
+                <Wifi className="w-6 h-6 text-white animate-pulse" />
+                <div>
+                  <h4 className="text-white font-orbitron text-sm tracking-wider leading-tight">
+                    ⚠️ OPPONENT NEURAL LINK SEVERED
+                  </h4>
+                  <p className="text-white/80 text-xs font-sans">
+                    Opponent closed their browser tab or dropped offline. Awaiting recovery...
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-4 w-full sm:w-auto justify-end">
+                <div className="flex flex-col items-end">
+                  <span className="text-[9px] text-white/70 uppercase tracking-widest font-orbitron">Grace Period</span>
+                  <span className="text-xl font-orbitron font-bold text-white leading-none">
+                    00:{graceLeft.toString().padStart(2, "0")}
+                  </span>
+                </div>
+
+                {graceLeft === 0 ? (
+                  <motion.button
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    onClick={claimTechnicalVictory}
+                    className="px-4 py-2 bg-white text-[#D62828] font-orbitron font-bold text-xs rounded-lg shadow-lg hover:bg-[#F5F5F5] transition-all whitespace-nowrap"
+                  >
+                    CLAIM TECHNICAL VICTORY
+                  </motion.button>
+                ) : (
+                  <div className="px-4 py-2 bg-black/20 text-white/50 font-orbitron text-xs rounded-lg border border-white/10 whitespace-nowrap cursor-wait">
+                    CLAIM VICTORY PENDING
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         {/* TOP SECTION - Opponent */}
         <motion.div
           initial={{ opacity: 0, y: -50 }}
