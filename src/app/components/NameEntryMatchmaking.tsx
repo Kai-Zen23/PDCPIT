@@ -12,7 +12,7 @@ export function NameEntryMatchmaking() {
   const navigate = useNavigate();
   const [playerName, setPlayerName] = useState("");
   const [matchState, setMatchState] = useState<MatchState>("name-entry");
-  const [playersInQueue] = useState(0); // This will be updated by polling or set to 0 if unused
+  const [playersInQueue] = useState(() => Math.floor(Math.random() * 14) + 2); // Simulates a live dynamic queue presence
   const [status, setStatus] = useState<string>("");
   const [loading, setLoading] = useState(false);
   const transitionedRef = useRef(false);
@@ -366,14 +366,6 @@ export function NameEntryMatchmaking() {
                   Playing as: {playerName}
                 </p>
 
-                {matchState === "searching" && (
-                  <div className="flex items-center justify-center gap-2 px-4 py-2 bg-[#1E1E1E] rounded-full border border-white/5 shadow-inner max-w-xs mx-auto">
-                    <span className="w-2 h-2 rounded-full bg-[#4CC9F0] animate-ping" />
-                    <span className="text-[10px] text-[#4CC9F0] font-orbitron tracking-widest">
-                      AI FALLBACK IN: <strong className="text-white font-bold">{60 - waitingElapsed}S</strong>
-                    </span>
-                  </div>
-                )}
 
                 {/* Animated dots */}
                 <div className="flex justify-center gap-2 mt-6">
