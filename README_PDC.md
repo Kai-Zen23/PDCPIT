@@ -107,3 +107,17 @@ By bridging distributed database operations with event loop parallelism, this pr
 - **Atomicity & Isolation** in high-throughput database interactions.
 - **Deadlock prevention** via fixed lock expiry timeouts.
 - **Horizontal scaling resiliency** across independent edge nodes.
+
+---
+
+## ⚡ Real-Time Systems Evolution: The Low-Latency Architecture Shift
+
+To achieve sub-50ms real-time responsiveness targets while maintaining complete concurrency safety across horizontally scaled clusters, the platform was systematically upgraded from pessimistic global locks to an **event-driven, localized action queue model**:
+
+### 🧠 Core Architectural Paradigm Shift
+* **From Lock-Based Synchronization** ➡️ **To Local Action Queues**: Distributed mutex primitives (`acquireMatchLock`) were entirely stripped from the game action loops. The system now uses deterministic in-memory FIFO buffers (`matchQueues`) to sequentially evaluate player command payloads per match.
+* **From Heavy Multi-Node Traversal** ➡️ **To Sharded Task Ring**: Localized event listeners assign matches directly to client socket owners, preventing unneeded distributed locks across Redis infrastructure.
+* **From Full Snapshot Serialization** ➡️ **To Delta Diffs**: The event emitter publishes granular patch properties (`match:patch`) over low-latency multi-channel routes (`io.local`), instantly updating UI components without deep network transmission blockages.
+* **From OCC Transaction Loops** ➡️ **To Atomic Lua Execution**: Optimistic checks during join attempts have been hardened into native C-engine Redis Lua packages (`atomicJoinMatch`), executing atomic evaluation and storage within a single pipeline cycle.
+* **From Event Loop Blocking** ➡️ **To Native Worker Threads**: Autonomous AI decision arrays are decoupled onto persistent background singletons (`botWorker.ts`), computing high-depth heuristic branches asynchronously.
+

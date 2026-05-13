@@ -41,9 +41,6 @@ const CORS_ORIGIN = process.env.CORS_ORIGIN ?? "*";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const botWorkerPath = path.resolve(__dirname, "./botWorker.js");
-const botWorker = new Worker(botWorkerPath);
-
-botWorker.on("error", (err) => console.error("[Bot Worker Thread Error]", err));
 
 function normalizeOrigin(value: string): string {
   return value.trim().replace(/\/+$/, "");
@@ -232,14 +229,6 @@ async function processNextCommand(matchId: string) {
   const q = matchQueues.get(matchId);
   if (!q || q.length === 0) return;
 
-  // Protect against concurrent multi-node state clobbering (Last-Write-Wins overwriting)
-  // while retaining deterministic sequentially buffered command structures per server instance
-  const lockAcquired = await acquireMatchLock(matchId, 2500);
-  if (!lockAcquired) {
-    setTimeout(() => processNextCommand(matchId), 40);
-    return;
-  }
-
   matchProcessing.add(matchId);
   const cmd = q.shift()!;
   const socket = cmd.socket;
@@ -293,7 +282,6 @@ async function processNextCommand(matchId: string) {
     const commandId = parsed.success ? parsed.data.commandId : undefined;
     socket.emit("match:error", { commandId, message: e instanceof Error ? e.message : "Command failed." });
   } finally {
-    await releaseMatchLock(matchId);
     matchProcessing.delete(matchId);
     // Process next action in buffer synchronously via event loop drain
     if (q.length > 0) {
@@ -370,7 +358,7 @@ setInterval(async () => {
     const waitingIds = await listWaitingMatchIds();
     await Promise.allSettled(
       waitingIds.map(async (matchId) => {
-        const lockAcquired = await acquireMatchLock(`ai_inject:${matchId}`, 2000);
+        const lockAcquired = await acquireMatchLock(`ai_inject:${matchId}`, 500);
         if (!lockAcquired) return;
         try {
           const record = await getMatch(matchId);
@@ -415,7 +403,7 @@ setInterval(async () => {
         if (now - record.match.round.turnStartedAt < 2500) return;
 
         // Distributed safety: guarantee Bot turn executes on exactly one cluster worker
-        const lockAcquired = await acquireMatchLock(`bot_turn:${matchId}:${record.match.round.roundNumber}:${record.match.round.turnStartedAt}`, 3000);
+        const lockAcquired = await acquireMatchLock(`bot_turn:${matchId}:${record.match.round.roundNumber}:${record.match.round.turnStartedAt}`, 500);
         if (!lockAcquired) return;
 
         try {
@@ -431,13 +419,18 @@ setInterval(async () => {
           const oppState = round.players[oppPid];
           const oppVisibleTotal = oppState?.hand.filter(c => c.visibility === "VISIBLE").reduce((acc, c) => acc + c.value, 0) || 0;
 
-          // Offload heuristic target calculation fully to persistent multi-thread background worker
-          const decision: { type: "DRAW" | "STAND" | "POWER_UP"; payload?: any } = await new Promise((resolve) => {
-            const onMsg = (msg: any) => {
+          // Offload heuristic target calculation fully to independent non-blocking worker thread
+          const decision: { type: "DRAW" | "STAND" | "POWER_UP"; payload?: any } = await new Promise((resolve, reject) => {
+            const worker = new Worker(botWorkerPath);
+            worker.once("message", (msg) => {
               resolve(msg);
-            };
-            botWorker.once("message", onMsg);
-            botWorker.postMessage({
+              worker.terminate().catch(() => {});
+            });
+            worker.once("error", (err) => {
+              reject(err);
+              worker.terminate().catch(() => {});
+            });
+            worker.postMessage({
               matchId,
               botId: activePid,
               botTotal: myTotal,
@@ -477,7 +470,8 @@ setInterval(async () => {
   
   await Promise.allSettled(
     expiredIds.map(async (matchId) => {
-      const lockAcquired = await acquireMatchLock(matchId, 3000);
+      // Optimized lock TTL down to 500ms to allow sub-second background task handover
+      const lockAcquired = await acquireMatchLock(matchId, 500);
       if (!lockAcquired) return;
 
       try {
