@@ -32,7 +32,7 @@ redis.defineCommand("atomicJoinMatch", {
       id = playerId,
       name = playerName,
       lives = maxLives,
-      powerUps = {}
+      powerUps = cjson.decode("[]")
     }
     table.insert(match.playerOrder, playerId)
     match.readyStatus[playerId] = false
@@ -64,7 +64,7 @@ redis.defineCommand("atomicInjectAi", {
       id = botId,
       name = "AI Duelist X21",
       lives = maxLives,
-      powerUps = {},
+      powerUps = cjson.decode("[]"),
       isBot = true
     }
     table.insert(match.playerOrder, botId)
