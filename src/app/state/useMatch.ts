@@ -240,6 +240,7 @@ export function useMatchConnection() {
           name: randomName,
           lives: 3,
           powerUps: [],
+          isBot: true,
         };
         rawState.playerOrder.push(botId);
         if (!rawState.readyStatus) rawState.readyStatus = {};

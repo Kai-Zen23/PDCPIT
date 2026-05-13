@@ -161,13 +161,14 @@ export function Gameplay() {
   const [graceStart, setGraceStart] = useState<number | null>(null);
 
   useEffect(() => {
-    if (state?.status === "IN_PROGRESS" && opponentPresence === false) {
+    const isBotMatch = state?.opponent?.playerId === "bot_ai_neural";
+    if (state?.status === "IN_PROGRESS" && opponentPresence === false && !isBotMatch) {
       setGraceStart((prev) => prev || Date.now());
     } else {
       setGraceStart(null);
       setGraceLeft(null);
     }
-  }, [state?.status, opponentPresence]);
+  }, [state?.status, opponentPresence, state?.opponent?.playerId]);
 
   useEffect(() => {
     if (!graceStart) return;
@@ -217,8 +218,8 @@ export function Gameplay() {
           // Heuristic strategy: if visible total < 16, DRAW; else STAND
           const oppTotal = state.round?.opponent?.totalVisible ?? 0;
           const isRisky = oppTotal >= 16;
-          apiSendCommand(state.id, {
-            matchId: state.id,
+          apiSendCommand(state.matchId, {
+            matchId: state.matchId,
             playerId: "bot_ai_neural",
             commandId: `bot_${Date.now()}`,
             type: isRisky ? "STAND" : "DRAW",
@@ -228,7 +229,7 @@ export function Gameplay() {
 
       return () => clearTimeout(timer);
     }
-  }, [state?.status, state?.round?.activePlayerId, state?.round?.ended, state?.round?.opponent?.totalVisible, state?.id]);
+  }, [state?.status, state?.round?.activePlayerId, state?.round?.ended, state?.round?.opponent?.totalVisible, state?.matchId]);
 
   useEffect(() => {
     if (state?.status === "FINISHED") {
