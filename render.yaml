@@ -13,7 +13,6 @@ services:
     name: cardgame-backend
     env: node
     rootDir: backend
-    region: singapore
     buildCommand: npm install --include=dev && npm run build
     startCommand: npm run start
     healthCheckPath: /health
@@ -27,7 +26,6 @@ services:
 
   - type: redis
     name: cardgame-redis
-    region: singapore
     ipAllowList: [] # Secure: Only allow internal traffic
     plan: free
 
