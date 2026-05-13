@@ -127,6 +127,15 @@ export async function apiGetMatchState(matchId: string, playerId: string): Promi
   return await res.json();
 }
 
+export async function apiSendCommand(matchId: string, payload: any): Promise<void> {
+  const res = await fetch(`${backendBaseUrl()}/api/matches/${encodeURIComponent(matchId)}/command`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error(await res.text());
+}
+
 /**
  * Creates a highly optimized WebSocket connection with:
  * - WebSocket transport only (no polling fallback overhead)

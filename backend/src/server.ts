@@ -146,6 +146,23 @@ app.post("/api/matches/:matchId/join", async (req, res) => {
   }
 });
 
+app.post("/api/matches/:matchId/command", async (req, res) => {
+  const matchId = String(req.params.matchId ?? "").trim();
+  const parsed = matchCommandSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+  
+  // We use a mock socket that only logs errors to console instead of sending to client
+  // as REST responses will inherently serve as the delivery mechanism
+  const mockSocket = {
+    emit: (event: string, data: any) => {
+      if (event === "match:error") console.warn(`[Command REST Error] ${data.message}`);
+    }
+  };
+  
+  enqueueCommand(matchId, mockSocket, req.body);
+  return res.json({ success: true });
+});
+
 app.get("/api/matches/:matchId/state/:playerId", async (req, res) => {
   const matchId = String(req.params.matchId ?? "").trim();
   const playerId = String(req.params.playerId ?? "").trim();

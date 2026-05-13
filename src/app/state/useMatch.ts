@@ -158,11 +158,21 @@ export function useMatchConnection() {
       return copy;
     });
 
-    globalSocket.emit("round:command", {
+    const payloadData = {
       matchId: session.matchId,
       playerId: session.playerId,
       commandId: nanoid(10),
       type,
+    };
+    
+    // Fire and forget via socket for latency advantage if connected
+    globalSocket.emit("round:command", payloadData);
+    
+    // GUARANTEED DELIVERY: Also send via REST to bypass any WebSocket proxy stickiness issues
+    import("../../lib/backend").then(({ apiSendCommand }) => {
+      apiSendCommand(session.matchId, payloadData).catch(err => {
+        console.warn("REST command fallback failed:", err);
+      });
     });
   }
 
@@ -180,12 +190,21 @@ export function useMatchConnection() {
       return copy;
     });
 
-    globalSocket.emit("round:command", {
+    const payloadData = {
       matchId: session.matchId,
       playerId: session.playerId,
       commandId: nanoid(10),
-      type: "POWER_UP",
+      type: "POWER_UP" as const,
       payload: { type: powerUp, ...payloadExtra },
+    };
+
+    globalSocket.emit("round:command", payloadData);
+    
+    // GUARANTEED DELIVERY: Also send via REST
+    import("../../lib/backend").then(({ apiSendCommand }) => {
+      apiSendCommand(session.matchId, payloadData).catch(err => {
+        console.warn("REST powerup fallback failed:", err);
+      });
     });
   }
 
