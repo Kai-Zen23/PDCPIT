@@ -60,13 +60,8 @@ export default defineConfig({
     },
     // Reduce chunk size thresholds for faster parallel loading
     chunkSizeWarningLimit: 600,
-    // Enable minification for smaller bundle
-    minify: 'terser',
-    terserOptions: {
-      compress: {
-        drop_console: true,
-      },
-    },
+    // Enable minification for smaller bundle using built-in esbuild
+    minify: 'esbuild',
   },
 
   // Development server optimizations
