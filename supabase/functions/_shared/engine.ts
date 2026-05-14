@@ -1,4 +1,4 @@
-import { nanoid } from "nanoid";
+import { nanoid } from "npm:nanoid@5.0.6";
 import { invalidateViewCache } from "./view.ts";
 import type {
   Card,

@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { useNavigate, useLocation } from "react-router";
 import { motion, AnimatePresence } from "motion/react";
 import { Copy, Users, ArrowLeft, ArrowRight, CheckCircle2, Loader2, Sparkles, Check } from "lucide-react";
-import { apiCreateMatch, apiJoinMatch } from "../../lib/backend";
+import { apiCreateMatch, apiJoinMatch, apiCancelMatchmaking } from "../../lib/backend";
 import { clearSession, loadSession, saveSession } from "../../lib/session";
 import { useMatchConnection, disconnectGlobalSocket } from "../state/useMatch";
 
@@ -95,6 +95,9 @@ export function Lobby() {
   };
 
   const handleLeave = () => {
+    if (session?.matchId) {
+      apiCancelMatchmaking(session.matchId);
+    }
     clearSession();
     disconnectGlobalSocket();
     navigate("/");

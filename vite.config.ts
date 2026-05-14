@@ -28,6 +28,8 @@ export default defineConfig({
     alias: {
       // Alias @ to the src directory
       '@': path.resolve(__dirname, './src'),
+      'npm:nanoid@5.0.6': 'nanoid',
+      'npm:zod@3.22.4': 'zod',
     },
   },
 
