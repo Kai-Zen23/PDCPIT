@@ -63,7 +63,7 @@ export function Lobby() {
       setErrorMsg("Display name must be at least 2 characters.");
       return;
     }
-    const code = roomCodeInput.trim().toUpperCase();
+    const code = roomCodeInput.trim();
     if (code.length < 1) {
       setErrorMsg("Please enter a valid room code.");
       return;
@@ -227,8 +227,8 @@ export function Lobby() {
                       <input
                         type="text"
                         value={roomCodeInput}
-                        onChange={(e) => setRoomCodeInput(e.target.value.toUpperCase().slice(0, 10))}
-                        placeholder="PASTE 8-CHAR CODE"
+                        onChange={(e) => setRoomCodeInput(e.target.value.slice(0, 10))}
+                        placeholder="PASTE CODE EXACTLY"
                         className="w-full bg-[#121212] border-2 border-[#4CC9F0]/50 rounded-xl px-5 py-3 text-[#4CC9F0] text-center text-xl tracking-[0.2em] font-orbitron placeholder:text-[#B0B0B0]/20 placeholder:tracking-normal focus:border-[#9D4EDD] focus:outline-none transition-colors"
                         style={{ fontFamily: 'Orbitron, sans-serif' }}
                       />
